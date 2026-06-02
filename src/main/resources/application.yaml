@@ -1,0 +1,3 @@
+spring:
+  application:
+    name: What4Dinner_dash_service
