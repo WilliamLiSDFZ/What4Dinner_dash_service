@@ -32,6 +32,9 @@ build/
 ### VS Code ###
 .vscode/
 
+### RSA Keys ###
+src/main/resources/keys/
+
 CLAUDE.md
 
 src/main/resources/application.yaml

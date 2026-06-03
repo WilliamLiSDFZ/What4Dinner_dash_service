@@ -1,4 +1,6 @@
-create table users
+CREATE EXTENSION IF NOT EXISTS vector;
+
+create table if not exists users
 (
     id                uuid primary key default gen_random_uuid() not null,
     email             varchar(255)                               not null
@@ -12,7 +14,7 @@ create table users
     updated_at        timestamp        default CURRENT_TIMESTAMP
 );
 
-CREATE TABLE categories
+CREATE TABLE IF NOT EXISTS categories
 (
     id         uuid primary key default gen_random_uuid() not null,
     code       VARCHAR(32)                                NOT NULL, -- 程序用的稳定标识，如 'vegetable'
@@ -21,7 +23,7 @@ CREATE TABLE categories
     UNIQUE (code)
 );
 
-CREATE TABLE tags
+CREATE TABLE IF NOT EXISTS tags
 (
     id         uuid primary key default gen_random_uuid() not null,
     code       VARCHAR(32)                                NOT NULL, -- 程序用稳定标识，如 'sichuan'
@@ -30,7 +32,7 @@ CREATE TABLE tags
         UNIQUE (code)
 );
 
-create table ingredients
+create table if not exists ingredients
 (
     id              uuid primary key      default gen_random_uuid() not null,
     canonical_name  varchar(256) not null,
@@ -42,7 +44,7 @@ create table ingredients
     UNIQUE (normalized_name)
 );
 
-CREATE TABLE ingredient_aliases
+CREATE TABLE IF NOT EXISTS ingredient_aliases
 (
     id               uuid primary key default gen_random_uuid() not null,
     ingredient_id    uuid                                       NOT NULL REFERENCES ingredients (id) on delete cascade,
@@ -51,7 +53,7 @@ CREATE TABLE ingredient_aliases
     UNIQUE (normalized_alias)
 );
 
-CREATE TABLE recipes
+CREATE TABLE IF NOT EXISTS recipes
 (
     id                uuid primary key      default gen_random_uuid() not null, -- 应用层 v7 生成，不写 DEFAULT
     user_id           UUID         NOT NULL REFERENCES users (id),              -- 上传者
@@ -67,7 +69,7 @@ CREATE TABLE recipes
         CHECK (status IN ('pending', 'done'))
 );
 
-CREATE TABLE recipe_steps
+CREATE TABLE IF NOT EXISTS recipe_steps
 (
     id          uuid primary key default gen_random_uuid() not null,
     recipe_id   UUID                                       NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
@@ -77,7 +79,7 @@ CREATE TABLE recipe_steps
     created_at  timestamp        DEFAULT current_timestamp
 );
 
-CREATE TABLE step_ingredients
+CREATE TABLE IF NOT EXISTS step_ingredients
 (
     id            uuid primary key default gen_random_uuid() not null,
     step_id       uuid                                       NOT NULL REFERENCES recipe_steps (id) ON DELETE CASCADE,
@@ -89,7 +91,7 @@ CREATE TABLE step_ingredients
     prep_note     text
 );
 
-CREATE TABLE recipe_ingredients
+CREATE TABLE IF NOT EXISTS recipe_ingredients
 (
     id            uuid primary key default gen_random_uuid() not null,
     recipe_id     uuid                                       NOT NULL REFERENCES recipes (id),
@@ -97,7 +99,7 @@ CREATE TABLE recipe_ingredients
     is_optional   BOOLEAN          DEFAULT false
 );
 
-CREATE TABLE recipe_raw_images
+CREATE TABLE IF NOT EXISTS recipe_raw_images
 (
     id          uuid primary key default gen_random_uuid() not null,
     recipe_id   UUID                                       NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
@@ -105,7 +107,7 @@ CREATE TABLE recipe_raw_images
     created_at  timestamp        DEFAULT current_timestamp
 );
 
-CREATE TABLE recipe_tags
+CREATE TABLE IF NOT EXISTS recipe_tags
 (
     recipe_id  UUID NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
     tag_id     uuid NOT NULL REFERENCES tags (id) ON DELETE CASCADE,
@@ -114,7 +116,7 @@ CREATE TABLE recipe_tags
     PRIMARY KEY (recipe_id, tag_id)      -- 复合主键，天然防重复
 );
 
-CREATE TABLE favorites
+CREATE TABLE IF NOT EXISTS favorites
 (
     user_id    UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     recipe_id  UUID NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
@@ -122,9 +124,9 @@ CREATE TABLE favorites
     PRIMARY KEY (user_id, recipe_id) -- 同一用户不能重复收藏
 );
 
-CREATE INDEX idx_favorites_user_time ON favorites (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_favorites_user_time ON favorites (user_id, created_at DESC);
 
-CREATE TABLE recipe_images
+CREATE TABLE IF NOT EXISTS recipe_images
 (
     id            uuid primary key default gen_random_uuid() not null,
     recipe_id     UUID         NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
@@ -147,14 +149,14 @@ CREATE TABLE recipe_images
     CONSTRAINT chk_img_status CHECK (status IN ('pending', 'processing', 'done', 'failed'))
 );
 
-CREATE INDEX idx_recipe_images_recipe ON recipe_images (recipe_id);
+CREATE INDEX IF NOT EXISTS idx_recipe_images_recipe ON recipe_images (recipe_id);
 
 -- 全菜谱最多一张封面，不分来源——这正是合表的好处
-CREATE UNIQUE INDEX uk_recipe_image_primary
+CREATE UNIQUE INDEX IF NOT EXISTS uk_recipe_image_primary
     ON recipe_images (recipe_id)
     WHERE is_primary = true;
 
-CREATE TABLE recipe_likes
+CREATE TABLE IF NOT EXISTS recipe_likes
 (
     user_id    UUID      NOT NULL REFERENCES users (id)   ON DELETE CASCADE,
     recipe_id  UUID      NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
@@ -163,9 +165,9 @@ CREATE TABLE recipe_likes
 );
 
 -- 高频查询是"这个菜谱有多少赞 / 谁赞了"，给 recipe_id 方向建索引
-CREATE INDEX idx_likes_recipe ON recipe_likes (recipe_id);
+CREATE INDEX IF NOT EXISTS idx_likes_recipe ON recipe_likes (recipe_id);
 
-CREATE TABLE embeddings
+CREATE TABLE IF NOT EXISTS embeddings
 (
     id         uuid primary key default gen_random_uuid() not null,
     owner_type VARCHAR(32)                                NOT NULL, -- 'recipe' / 'ingredient'
@@ -177,7 +179,7 @@ CREATE TABLE embeddings
     UNIQUE (owner_type, owner_id, model)
 );
 
-create table activate_code
+create table if not exists activate_code
 (
     activation_code varchar(255)                        not null primary key,
     create_time     timestamp default CURRENT_TIMESTAMP not null,
