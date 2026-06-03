@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    image: what4dinner-dash-service:latest
+    container_name: what4dinner-dash-service
+    ports:
+      - "8082:8082"
+    environment:
+      # Passed through from the host if set; otherwise the application.yaml defaults apply.
+      - SPRING_DATASOURCE_URL
+      - SPRING_DATASOURCE_USERNAME
+      - SPRING_DATASOURCE_PASSWORD
+      # JWT keys are read from the mounted volume below.
+      - JWT_PRIVATE_KEY=file:/app/keys/private.pem
+      - JWT_PUBLIC_KEY=file:/app/keys/public.pem
+    volumes:
+      - ./keys:/app/keys:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s

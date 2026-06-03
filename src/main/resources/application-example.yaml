@@ -16,6 +16,6 @@ spring:
       mode: always
 
 jwt:
-  private-key: classpath:keys/your-private.pem
-  public-key: classpath:keys/your-public.pem
+  private-key: ${JWT_PRIVATE_KEY:classpath:keys/your-private.pem}
+  public-key: ${JWT_PUBLIC_KEY:classpath:keys/your-public.pem}
   expiration-minutes: 60
