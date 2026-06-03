@@ -10,11 +10,7 @@ services:
       - SPRING_DATASOURCE_URL
       - SPRING_DATASOURCE_USERNAME
       - SPRING_DATASOURCE_PASSWORD
-      # JWT keys are read from the mounted volume below.
-      - JWT_PRIVATE_KEY=file:/app/keys/private.pem
-      - JWT_PUBLIC_KEY=file:/app/keys/public.pem
-    volumes:
-      - ./keys:/app/keys:ro
+      # JWT keys are baked into the image at classpath:keys/*.pem (see src/main/resources/keys).
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/api/v1/health"]
       interval: 15s
