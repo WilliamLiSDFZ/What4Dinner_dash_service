@@ -1,3 +1,25 @@
 spring:
   application:
     name: What4Dinner_dash_service
+
+server:
+  port: 8082
+  servlet:
+    context-path: /api
+
+#  datasource:
+#    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://136.109.252.191:3306/w4d}
+#    username: ${SPRING_DATASOURCE_USERNAME:root}
+#    password: ${SPRING_DATASOURCE_PASSWORD:W4dyun2026!}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://136.114.213.6:5432/w4d}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:W4dyun2026!}
+  sql:
+    init:
+      mode: always
+
+jwt:
+  private-key: classpath:keys/private.pem
+  public-key: classpath:keys/public.pem
+  expiration-minutes: 60
