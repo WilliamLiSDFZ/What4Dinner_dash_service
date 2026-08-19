@@ -84,14 +84,59 @@ Returns an empty array `[]` if the user has no recipes.
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/api/v1/recipe
 ```
 
+### `GET /v1/favorite` — list my favorites
+
+_Authenticated._ Returns summaries of the recipes the authenticated user has favorited (user resolved from the JWT `sub` claim). Ordered newest favorite first (`favorites.created_at DESC`).
+
+The response uses the same recipe-summary shape as `GET /v1/recipe`.
+
+**Request**
+
+```
+GET /api/v1/favorite
+Authorization: Bearer <jwt>
+```
+
+**Response** `200 OK`
+
+```json
+[
+  {
+    "id": "b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f",
+    "title": "西红柿炒鸡蛋",
+    "description": "家常快手菜",
+    "status": "done"
+  }
+]
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | UUID | Recipe id |
+| `title` | string | Recipe name |
+| `description` | string \| null | Short description / notes |
+| `status` | string | `pending` or `done` |
+
+Returns an empty array `[]` if the user has no favorites. A favorited recipe owned by another user is still returned — favorites are not scoped to the recipe's owner.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `401 Unauthorized` | No / invalid token |
+
+**Example**
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/api/v1/favorite
+```
+
 ## Planned endpoints
 
 The following controllers exist as stubs and have no endpoints implemented yet:
 
 | Base path | Area |
 |-----------|------|
-| `/v1/health` | Health checks (intended to be _Public_) |
-| `/v1/favorite` | Favorites |
 | `/v1/like` | Recipe likes |
 | `/v1/setting` | User settings |
 | `/v1/shopping-list` | Shopping lists |
