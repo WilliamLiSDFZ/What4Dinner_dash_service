@@ -131,6 +131,61 @@ Returns an empty array `[]` if the user has no favorites. A favorited recipe own
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/api/v1/favorite
 ```
 
+### `PATCH /v1/favorite/{recipeId}` — set favorite status
+
+_Authenticated._ Favorites or unfavorites a recipe for the authenticated user (resolved from the JWT `sub` claim).
+
+Sets an explicit desired state rather than toggling, so the call is **idempotent** — repeating it, or a double-tapped button, lands on the same result. Any existing recipe may be favorited regardless of who owns it.
+
+**Request**
+
+```
+PATCH /api/v1/favorite/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "favorited": true
+}
+```
+
+| Parameter | In | Type | Notes |
+|-----------|----|------|-------|
+| `recipeId` | path | UUID | Recipe to favorite / unfavorite |
+| `favorited` | body | boolean | **Required.** `true` favorites, `false` unfavorites |
+
+**Response** `200 OK`
+
+```json
+{
+  "recipeId": "b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f",
+  "favorited": true
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `recipeId` | UUID | The recipe that was updated |
+| `favorited` | boolean | Resulting state |
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Body missing, `favorited` absent or null, or `recipeId` is not a UUID |
+| `401 Unauthorized` | No / invalid token |
+| `404 Not Found` | No recipe with that id |
+
+**Example**
+
+```bash
+curl -X PATCH \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"favorited":true}' \
+  http://localhost:8082/api/v1/favorite/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+```
+
 ## Planned endpoints
 
 The following controllers exist as stubs and have no endpoints implemented yet:

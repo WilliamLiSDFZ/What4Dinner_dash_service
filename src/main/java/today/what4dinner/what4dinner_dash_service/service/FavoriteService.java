@@ -15,4 +15,15 @@ public interface FavoriteService {
      * @return the user's favorited recipe summaries (empty if none)
      */
     List<RecipeSummary> getFavoritesForUser(UUID userId);
+
+    /**
+     * Sets whether the given user has favorited the given recipe. Idempotent — setting a
+     * state the recipe is already in changes nothing.
+     *
+     * @param userId    the favoriting user's id
+     * @param recipeId  the recipe to favorite or unfavorite
+     * @param favorited the desired state
+     * @throws org.springframework.web.server.ResponseStatusException 404 if no such recipe exists
+     */
+    void setFavorite(UUID userId, UUID recipeId, boolean favorited);
 }

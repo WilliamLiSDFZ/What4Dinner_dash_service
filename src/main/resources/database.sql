@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS tags
     code       VARCHAR(32)                                NOT NULL, -- 程序用稳定标识，如 'sichuan'
     name       VARCHAR(64)                                NOT NULL, -- 显示名，如 '川菜'
     created_at timestamp        DEFAULT current_timestamp,
-        UNIQUE (code)
+    UNIQUE (code)
 );
 
 create table if not exists ingredients
@@ -128,13 +128,13 @@ CREATE INDEX IF NOT EXISTS idx_favorites_user_time ON favorites (user_id, create
 
 CREATE TABLE IF NOT EXISTS recipe_images
 (
-    id            uuid primary key default gen_random_uuid() not null,
-    recipe_id     UUID         NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
-    source        VARCHAR(16)  NOT NULL,        -- 'ai' / 'user'：这张图哪来的
-    storage_key   VARCHAR(512),                 -- 成功后的对象存储路径
-    status        VARCHAR(16)  NOT NULL DEFAULT 'pending',  -- AI图走 pending→done；用户图直接 done
-    is_primary    BOOLEAN      DEFAULT false,   -- 是否当前封面
-    display_order INT          DEFAULT 0,       -- 多图展示排序
+    id            uuid primary key     default gen_random_uuid() not null,
+    recipe_id     UUID        NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
+    source        VARCHAR(16) NOT NULL,                   -- 'ai' / 'user'：这张图哪来的
+    storage_key   VARCHAR(512),                           -- 成功后的对象存储路径
+    status        VARCHAR(16) NOT NULL DEFAULT 'pending', -- AI图走 pending→done；用户图直接 done
+    is_primary    BOOLEAN              DEFAULT false,     -- 是否当前封面
+    display_order INT                  DEFAULT 0,         -- 多图展示排序
 
     -- 仅 AI 图用的字段（source='user' 时为空）
     prompt        TEXT,
@@ -142,9 +142,9 @@ CREATE TABLE IF NOT EXISTS recipe_images
     error_message TEXT,
 
     -- 仅用户图用的字段（source='ai' 时为空）
-    uploaded_by   UUID         REFERENCES users (id),  -- 谁上传的
+    uploaded_by   UUID REFERENCES users (id),             -- 谁上传的
 
-    created_at    timestamp    DEFAULT current_timestamp,
+    created_at    timestamp            DEFAULT current_timestamp,
     CONSTRAINT chk_img_source CHECK (source IN ('ai', 'user')),
     CONSTRAINT chk_img_status CHECK (status IN ('pending', 'processing', 'done', 'failed'))
 );
@@ -158,10 +158,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_recipe_image_primary
 
 CREATE TABLE IF NOT EXISTS recipe_likes
 (
-    user_id    UUID      NOT NULL REFERENCES users (id)   ON DELETE CASCADE,
-    recipe_id  UUID      NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
+    user_id    UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    recipe_id  UUID NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
     created_at timestamp DEFAULT current_timestamp,
-    PRIMARY KEY (user_id, recipe_id)    -- 同一用户对同一菜谱只能点一次赞
+    PRIMARY KEY (user_id, recipe_id) -- 同一用户对同一菜谱只能点一次赞
 );
 
 -- 高频查询是"这个菜谱有多少赞 / 谁赞了"，给 recipe_id 方向建索引
