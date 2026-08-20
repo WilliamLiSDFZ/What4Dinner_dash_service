@@ -326,6 +326,86 @@ Then send `objectName` to whichever endpoint stores it (e.g. `recipe_images.stor
 | `401 Unauthorized` | No / invalid token |
 | `503 Service Unavailable` | GCS is not configured (`gcs.bucket` unset or credentials missing) |
 
+### `GET /v1/user/me` — my profile
+
+_Authenticated._ Returns the authenticated user's own profile, resolved from the JWT `sub` claim.
+
+**Response** `200 OK`
+
+```json
+{
+  "id": "019e8ec8-f581-758d-98c0-1bb53c05db2f",
+  "familyId": "596162e9-7a53-42fe-bb77-0a15e5618b66",
+  "email": "liyuze2004@gmail.com",
+  "username": "liyuze2004",
+  "activated": false,
+  "seenTourVersion": 0,
+  "createdAt": "2026-06-03T18:39:55.288133",
+  "updatedAt": "2026-08-20T08:34:24.713312"
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | UUID | User id (the JWT `sub`) |
+| `familyId` | UUID | Family this user belongs to |
+| `email` | string | |
+| `username` | string | |
+| `activated` | boolean | |
+| `seenTourVersion` | int | |
+| `createdAt` / `updatedAt` | timestamp | |
+
+The password hash is never selected by the query and never appears in the response.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+
+---
+
+### `GET /v1/family` — my family
+
+_Authenticated._ Returns the family the authenticated user belongs to, with its members. The family is resolved from the JWT `sub` claim (`users.family_id`) — never from the request.
+
+**Response** `200 OK`
+
+```json
+{
+  "id": "596162e9-7a53-42fe-bb77-0a15e5618b66",
+  "familyName": "default family name(please change)",
+  "backgroundImageUrl": null,
+  "createdAt": "2026-08-20T08:40:13.160583",
+  "members": [
+    {
+      "id": "019e8ec8-f581-758d-98c0-1bb53c05db2f",
+      "username": "liyuze2004",
+      "email": "liyuze2004@gmail.com"
+    }
+  ]
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | UUID | Family id |
+| `familyName` | string \| null | |
+| `backgroundImageUrl` | string \| null | Short-lived **signed GET URL** — see below |
+| `createdAt` | timestamp | |
+| `members` | array | Every user in the family, oldest first (`id`, `username`, `email`) |
+
+**About `backgroundImageUrl`.** The bucket has `publicAccessPrevention: ENFORCED`, so objects can never be public and a bare object key would be useless to a client. The server therefore returns a signed GET URL that can be used directly as an `<img src>`. It expires after `gcs.signed-url-minutes` (default 15), so **fetch it fresh rather than caching it**. The raw object key is intentionally not exposed.
+
+It is `null` when the family has no background image, and also `null` — rather than an error — if GCS is unconfigured, so the rest of the family data stays usable.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+| `404 Not Found` | The family row no longer exists |
+
 ## Planned endpoints
 
 The following controllers exist as stubs and have no endpoints implemented yet:

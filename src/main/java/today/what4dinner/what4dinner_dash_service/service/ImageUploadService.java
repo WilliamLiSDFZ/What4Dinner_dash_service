@@ -16,4 +16,14 @@ public interface ImageUploadService {
      *         purpose or content type; 503 if GCS is not configured
      */
     UploadUrlResponse createUploadUrl(UUID userId, String purpose, String contentType);
+
+    /**
+     * Mints a short-lived signed GET URL for an object that already exists, so a client
+     * can render it despite the bucket being non-public.
+     *
+     * <p>Returns {@code null} — rather than throwing — when {@code objectName} is null or
+     * blank, or when GCS is unconfigured. Callers embed this in a larger response that
+     * stays useful without the image.
+     */
+    String createReadUrl(String objectName);
 }

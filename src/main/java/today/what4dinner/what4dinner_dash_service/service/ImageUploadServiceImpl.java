@@ -93,4 +93,23 @@ public class ImageUploadServiceImpl implements ImageUploadService {
                 Map.of("Content-Type", contentType),
                 Instant.now().plus(Duration.ofMinutes(signedUrlMinutes)));
     }
+
+    @Override
+    public String createReadUrl(String objectName) {
+        if (objectName == null || objectName.isBlank()) {
+            return null;
+        }
+        Storage storage = storageProvider.getIfAvailable();
+        if (storage == null) {
+            // Degrade rather than fail: the response this feeds is still useful without an image.
+            return null;
+        }
+        // A GET carries no body, so only the host header needs signing - no withExtHeaders here.
+        return storage.signUrl(
+                        BlobInfo.newBuilder(BlobId.of(bucket, objectName)).build(),
+                        signedUrlMinutes, TimeUnit.MINUTES,
+                        Storage.SignUrlOption.httpMethod(HttpMethod.GET),
+                        Storage.SignUrlOption.withV4Signature())
+                .toString();
+    }
 }
