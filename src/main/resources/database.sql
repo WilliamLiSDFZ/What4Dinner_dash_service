@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 create table if not exists users
 (
     id                uuid primary key default gen_random_uuid() not null,
+    family_id         uuid                                       not null,
     email             varchar(255)                               not null
         constraint email
             unique,
@@ -11,7 +12,16 @@ create table if not exists users
     activated         boolean          default false             not null,
     seen_tour_version int                                        not null default 0,
     created_at        timestamp        default CURRENT_TIMESTAMP,
-    updated_at        timestamp        default CURRENT_TIMESTAMP
+    updated_at        timestamp        default CURRENT_TIMESTAMP,
+    foreign key (family_id) references family (id)
+);
+
+create table if not exists family
+(
+    id                   uuid primary key default gen_random_uuid() not null,
+    family_name          text                                       null,
+    background_image_key VARCHAR(1024)                              NULL,
+    created_at           timestamp        DEFAULT current_timestamp
 );
 
 CREATE TABLE IF NOT EXISTS categories
@@ -35,28 +45,19 @@ CREATE TABLE IF NOT EXISTS tags
 create table if not exists ingredients
 (
     id              uuid primary key      default gen_random_uuid() not null,
+    family_id       uuid         not null references family (id),
     canonical_name  varchar(256) not null,
-    normalized_name varchar(256) not null,
     category_id     uuid REFERENCES categories (id),
     reference_price float8       null     default 0,
     last_purchase   timestamp    null,
-    created_at      timestamp    not null default current_timestamp,
-    UNIQUE (normalized_name)
-);
-
-CREATE TABLE IF NOT EXISTS ingredient_aliases
-(
-    id               uuid primary key default gen_random_uuid() not null,
-    ingredient_id    uuid                                       NOT NULL REFERENCES ingredients (id) on delete cascade,
-    normalized_alias VARCHAR(256)                               NOT NULL,
-    language         VARCHAR(8), -- zh / en
-    UNIQUE (normalized_alias)
+    created_at      timestamp    not null default current_timestamp
 );
 
 CREATE TABLE IF NOT EXISTS recipes
 (
     id                uuid primary key      default gen_random_uuid() not null, -- 应用层 v7 生成，不写 DEFAULT
     user_id           UUID         NOT NULL REFERENCES users (id),              -- 上传者
+    family_id         uuid         not null references family (id),
     title             VARCHAR(512) not null,                                    -- 菜名
     description       TEXT,                                                     -- 简介/备注
     prep_time_minutes INT,

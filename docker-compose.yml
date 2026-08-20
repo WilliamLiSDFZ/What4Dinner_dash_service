@@ -10,6 +10,9 @@ services:
       - SPRING_DATASOURCE_URL
       - SPRING_DATASOURCE_USERNAME
       - SPRING_DATASOURCE_PASSWORD
+      - GCS_BUCKET
+      - GCS_CREDENTIALS
+      - GCS_SIGNED_URL_MINUTES
       # JWT keys are baked into the image at classpath:keys/*.pem (see src/main/resources/keys).
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/api/v1/health"]

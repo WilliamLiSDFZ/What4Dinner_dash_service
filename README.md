@@ -30,6 +30,9 @@ Runtime config lives in `src/main/resources/application.yaml`; `application-exam
 | `SPRING_DATASOURCE_URL` | JDBC URL | `jdbc:postgresql://…:5432/w4d` |
 | `SPRING_DATASOURCE_USERNAME` | DB user | `postgres` |
 | `SPRING_DATASOURCE_PASSWORD` | DB password | — |
+| `GCS_BUCKET` | GCS bucket for image uploads | — (unset ⇒ upload endpoint returns `503`) |
+| `GCS_CREDENTIALS` | Service-account JSON for signing URLs | `classpath:keys/gcp-key.json` |
+| `GCS_SIGNED_URL_MINUTES` | Signed-URL lifetime | `15` |
 
 Prefer overriding these via environment rather than editing the file.
 
@@ -46,7 +49,20 @@ jwt:
   expiration-minutes: 60
 ```
 
-Place `private.pem` (PKCS#8) and `public.pem` (X.509) under `src/main/resources/keys/`. **The app will not start without them.** To generate a dev keypair:
+Place `private.pem` (PKCS#8) and `public.pem` (X.509) under `src/main/resources/keys/`.
+
+### Image uploads (GCS)
+
+`POST /v1/image/upload-url` mints V4 signed PUT URLs so the client uploads straight to Google Cloud Storage. It needs a bucket and a service-account key that can sign:
+
+```yaml
+gcs:
+  bucket: ${GCS_BUCKET:}
+  credentials: ${GCS_CREDENTIALS:classpath:keys/gcp-key.json}
+  signed-url-minutes: ${GCS_SIGNED_URL_MINUTES:15}
+```
+
+Drop the service-account JSON at `src/main/resources/keys/gcp-key.json` (that directory is already gitignored). The project id is read from the key file, so it is not configured separately. **Without these the app still starts** — only the upload endpoint is disabled and answers `503`. **The app will not start without them.** To generate a dev keypair:
 
 ```bash
 mkdir -p src/main/resources/keys

@@ -19,3 +19,8 @@ jwt:
   private-key: ${JWT_PRIVATE_KEY:classpath:keys/your-private.pem}
   public-key: ${JWT_PUBLIC_KEY:classpath:keys/your-public.pem}
   expiration-minutes: 60
+
+gcs:
+  bucket: ${GCS_BUCKET:}
+  credentials: ${GCS_CREDENTIALS:classpath:keys/gcp-key.json}
+  signed-url-minutes: ${GCS_SIGNED_URL_MINUTES:15}
