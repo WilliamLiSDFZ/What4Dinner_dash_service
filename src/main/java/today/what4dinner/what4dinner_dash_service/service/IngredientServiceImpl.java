@@ -5,10 +5,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import today.what4dinner.what4dinner_dash_service.dto.CreateIngredientRequest;
 import today.what4dinner.what4dinner_dash_service.dto.IngredientSummary;
 import today.what4dinner.what4dinner_dash_service.repository.IngredientRepository;
 import today.what4dinner.what4dinner_dash_service.repository.UserRepository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,16 +38,27 @@ public class IngredientServiceImpl implements IngredientService {
      */
     @Override
     @Transactional
-    public IngredientSummary createIngredient(UUID userId, String name, UUID categoryId) {
+    public IngredientSummary createIngredient(UUID userId, CreateIngredientRequest request) {
         UUID familyId = familyOf(userId);
 
-        String canonicalName = name == null ? "" : name.trim();
+        String canonicalName = request.getName() == null ? "" : request.getName().trim();
         if (canonicalName.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
         }
+        UUID categoryId = request.getCategoryId();
         if (categoryId != null && ingredientRepository.countCategoryById(categoryId) == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown categoryId");
         }
+        Double price = request.getReferencePrice();
+        if (price != null && price < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "referencePrice must not be negative");
+        }
+        // Resolve to a concrete value: inserting NULL would override the column default of 0.
+        double referencePrice = price == null ? 0d : price;
+        // The API takes a date; the column is a timestamp, so anchor it at start of day.
+        LocalDateTime lastPurchase = request.getLastPurchase() == null
+                ? null
+                : request.getLastPurchase().atStartOfDay();
         // The schema has no unique constraint on the name, so this is enforced here only.
         if (ingredientRepository.countByFamilyIdAndName(familyId, canonicalName) > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Ingredient name already exists");
@@ -53,7 +66,7 @@ public class IngredientServiceImpl implements IngredientService {
 
         UUID id = UUID.randomUUID();
         try {
-            ingredientRepository.insert(id, familyId, canonicalName, categoryId);
+            ingredientRepository.insert(id, familyId, canonicalName, categoryId, referencePrice, lastPurchase);
         } catch (DataIntegrityViolationException e) {
             // Backstop in case a unique constraint is added to the schema later.
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Ingredient name already exists");

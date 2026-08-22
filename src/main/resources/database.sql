@@ -21,6 +21,8 @@ create table if not exists family
     id                   uuid primary key default gen_random_uuid() not null,
     family_name          text                                       null,
     background_image_key VARCHAR(1024)                              NULL,
+    timezone varchar(255) not null default 'America/Los_Angeles',
+    currency_unit varchar(255) not null default 'USD',
     created_at           timestamp        DEFAULT current_timestamp
 );
 
@@ -167,6 +169,14 @@ CREATE TABLE IF NOT EXISTS recipe_likes
 
 -- 高频查询是"这个菜谱有多少赞 / 谁赞了"，给 recipe_id 方向建索引
 CREATE INDEX IF NOT EXISTS idx_likes_recipe ON recipe_likes (recipe_id);
+
+create table if not exists family_shopping_list
+(
+    family_id  uuid not null references family (id) on delete cascade,
+    recipe_id  UUID NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
+    created_at timestamp DEFAULT current_timestamp,
+    PRIMARY KEY (family_id, recipe_id)
+);
 
 CREATE TABLE IF NOT EXISTS embeddings
 (

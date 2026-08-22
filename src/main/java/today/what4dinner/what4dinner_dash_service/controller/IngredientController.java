@@ -49,8 +49,7 @@ public class IngredientController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
         }
         UUID userId = UUID.fromString(jwt.getSubject());
-        IngredientSummary created =
-                ingredientService.createIngredient(userId, request.getName(), request.getCategoryId());
+        IngredientSummary created = ingredientService.createIngredient(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

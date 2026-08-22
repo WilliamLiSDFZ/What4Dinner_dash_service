@@ -26,6 +26,12 @@ public class FamilyInfo {
 
     private String backgroundImageUrl;
 
+    /** IANA zone id. Also available, grouped, from {@code GET /v1/setting}. */
+    private String timezone;
+
+    /** ISO 4217 currency code. Also available, grouped, from {@code GET /v1/setting}. */
+    private String currencyUnit;
+
     private LocalDateTime createdAt;
 
     private List<FamilyMember> members;

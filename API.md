@@ -229,7 +229,9 @@ Content-Type: application/json
 
 {
   "name": "西红柿",
-  "categoryId": null
+  "categoryId": null,
+  "referencePrice": 3.5,
+  "lastPurchase": "2026-08-20"
 }
 ```
 
@@ -237,14 +239,20 @@ Content-Type: application/json
 |-------|------|-------|
 | `name` | string | **Required.** Trimmed before storing |
 | `categoryId` | UUID \| null | Optional; must exist in `categories` |
+| `referencePrice` | number \| null | Optional; omitted or `null` stores `0`. Must not be negative |
+| `lastPurchase` | string \| null | Optional purchase **date**, `yyyy-MM-dd`. Stored at `00:00:00` |
 
 **Response** `201 Created` — the created ingredient, same shape as the `GET` items.
+
+> **Date in, timestamp out.** `lastPurchase` is *sent* as a plain date (`"2026-08-20"`) but
+> *returned* as a timestamp (`"2026-08-20T00:00:00"`), because the underlying column is a
+> `timestamp`. The time component is always midnight.
 
 **Errors**
 
 | Status | When |
 |--------|------|
-| `400 Bad Request` | Missing body, blank `name`, or unknown `categoryId` |
+| `400 Bad Request` | Missing body, blank `name`, unknown `categoryId`, negative `referencePrice`, or a `lastPurchase` that is not a `yyyy-MM-dd` date |
 | `401 Unauthorized` | No / invalid token |
 | `409 Conflict` | The family already has an ingredient with that name (case-insensitive) |
 
@@ -376,6 +384,8 @@ _Authenticated._ Returns the family the authenticated user belongs to, with its 
   "id": "596162e9-7a53-42fe-bb77-0a15e5618b66",
   "familyName": "default family name(please change)",
   "backgroundImageUrl": null,
+  "timezone": "America/Los_Angeles",
+  "currencyUnit": "USD",
   "createdAt": "2026-08-20T08:40:13.160583",
   "members": [
     {
@@ -392,6 +402,8 @@ _Authenticated._ Returns the family the authenticated user belongs to, with its 
 | `id` | UUID | Family id |
 | `familyName` | string \| null | |
 | `backgroundImageUrl` | string \| null | Short-lived **signed GET URL** — see below |
+| `timezone` | string | IANA zone id. Change it via `PATCH /v1/setting` |
+| `currencyUnit` | string | ISO 4217 code. Change it via `PATCH /v1/setting` |
 | `createdAt` | timestamp | |
 | `members` | array | Every user in the family, oldest first (`id`, `username`, `email`) |
 
@@ -406,6 +418,89 @@ It is `null` when the family has no background image, and also `null` — rather
 | `401 Unauthorized` | No / invalid token, or the user row no longer exists |
 | `404 Not Found` | The family row no longer exists |
 
+### `GET /v1/setting` — read settings
+
+_Authenticated._ Returns the settings visible to the caller, **grouped by scope**.
+
+```json
+{
+  "family": {
+    "timezone": "America/Los_Angeles",
+    "currencyUnit": "USD"
+  }
+}
+```
+
+Settings are deliberately grouped rather than flat, so future groups (user, notification, …) can be added as sibling keys without breaking this contract. **Read `settings.family.timezone`, not a top-level `timezone`.**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `family.timezone` | string | IANA zone id, e.g. `America/Los_Angeles` |
+| `family.currencyUnit` | string | ISO 4217 code, e.g. `USD` |
+
+> The `family` group is stored on the family row, so **it is shared by every member** — one member changing it changes it for the whole household. It is not a per-user preference.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+| `404 Not Found` | The family row no longer exists |
+
+---
+
+### `PATCH /v1/setting` — update settings
+
+_Authenticated._ Partial update. The request is nested exactly like the response.
+
+**Request**
+
+```
+PATCH /api/v1/setting
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "family": { "timezone": "Asia/Shanghai" }
+}
+```
+
+**Response** `200 OK` — the full settings document after the change:
+
+```json
+{
+  "family": {
+    "timezone": "Asia/Shanghai",
+    "currencyUnit": "USD"
+  }
+}
+```
+
+**Partial at both levels.** Omit the `family` group, or omit a field inside it, and those values are left unchanged. `{}` and `{"family":{}}` are both valid no-ops that simply return the current settings.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `family.timezone` | string \| null | Must be a valid IANA zone id. **Case-sensitive** — `asia/shanghai` is rejected |
+| `family.currencyUnit` | string \| null | Must be a valid ISO 4217 code. Trimmed and upper-cased, so `"cny"` is accepted as `CNY` |
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Invalid timezone or currency code. Validated before any database access |
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+| `404 Not Found` | The family row no longer exists |
+
+**Example**
+
+```bash
+curl -X PATCH \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"family":{"timezone":"Asia/Shanghai","currencyUnit":"CNY"}}' \
+  http://localhost:8082/api/v1/setting
+```
+
 ## Planned endpoints
 
 The following controllers exist as stubs and have no endpoints implemented yet:
@@ -413,7 +508,6 @@ The following controllers exist as stubs and have no endpoints implemented yet:
 | Base path | Area |
 |-----------|------|
 | `/v1/like` | Recipe likes |
-| `/v1/setting` | User settings |
 | `/v1/shopping-list` | Shopping lists |
 
 ## Conventions

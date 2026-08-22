@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
@@ -19,4 +20,10 @@ public class CreateIngredientRequest {
 
     /** Optional {@code categories.id}. */
     private UUID categoryId;
+
+    /** Optional. Omitted or null stores {@code 0}. Must not be negative. */
+    private Double referencePrice;
+
+    /** Optional purchase date, {@code yyyy-MM-dd}. Stored at start of day. */
+    private LocalDate lastPurchase;
 }

@@ -28,6 +28,11 @@ public class Family {
     @Column("background_image_key")
     private String backgroundImageKey;
 
+    private String timezone;
+
+    @Column("currency_unit")
+    private String currencyUnit;
+
     @Column("created_at")
     private LocalDateTime createdAt;
 }

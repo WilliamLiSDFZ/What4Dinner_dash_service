@@ -1,5 +1,6 @@
 package today.what4dinner.what4dinner_dash_service.service;
 
+import today.what4dinner.what4dinner_dash_service.dto.CreateIngredientRequest;
 import today.what4dinner.what4dinner_dash_service.dto.IngredientSummary;
 
 import java.util.List;
@@ -13,10 +14,11 @@ public interface IngredientService {
     /**
      * Creates an ingredient in the caller's family.
      *
-     * @throws org.springframework.web.server.ResponseStatusException 400 if the name is blank
-     *         or the category is unknown; 409 if the name is already used in the family
+     * @throws org.springframework.web.server.ResponseStatusException 400 if the name is blank,
+     *         the category is unknown, or the reference price is negative; 409 if the name is
+     *         already used in the family
      */
-    IngredientSummary createIngredient(UUID userId, String name, UUID categoryId);
+    IngredientSummary createIngredient(UUID userId, CreateIngredientRequest request);
 
     /**
      * Deletes an ingredient from the caller's family.

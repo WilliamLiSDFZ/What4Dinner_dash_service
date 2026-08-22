@@ -7,6 +7,7 @@ import org.springframework.data.jdbc.repository.query.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,15 +57,22 @@ public interface IngredientRepository extends Repository<Ingredient, UUID> {
     @Query("SELECT count(*) FROM categories WHERE id = :categoryId")
     long countCategoryById(@Param("categoryId") UUID categoryId);
 
+    /**
+     * {@code referencePrice} is a primitive: the caller always resolves a concrete value
+     * first, because binding an explicit NULL would override the column's {@code default 0}
+     * rather than fall back to it.
+     */
     @Modifying
     @Query("""
-            INSERT INTO ingredients (id, family_id, canonical_name, category_id)
-            VALUES (:id, :familyId, :canonicalName, :categoryId)
+            INSERT INTO ingredients (id, family_id, canonical_name, category_id, reference_price, last_purchase)
+            VALUES (:id, :familyId, :canonicalName, :categoryId, :referencePrice, :lastPurchase)
             """)
     void insert(@Param("id") UUID id,
                 @Param("familyId") UUID familyId,
                 @Param("canonicalName") String canonicalName,
-                @Param("categoryId") UUID categoryId);
+                @Param("categoryId") UUID categoryId,
+                @Param("referencePrice") double referencePrice,
+                @Param("lastPurchase") LocalDateTime lastPurchase);
 
     @Modifying
     @Query("DELETE FROM ingredients WHERE id = :id AND family_id = :familyId")

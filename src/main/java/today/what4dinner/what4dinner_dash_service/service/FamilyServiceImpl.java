@@ -42,6 +42,8 @@ public class FamilyServiceImpl implements FamilyService {
                 family.getId(),
                 family.getFamilyName(),
                 backgroundImageUrl,
+                family.getTimezone(),
+                family.getCurrencyUnit(),
                 family.getCreatedAt(),
                 userRepository.findMembersByFamilyId(familyId));
     }
