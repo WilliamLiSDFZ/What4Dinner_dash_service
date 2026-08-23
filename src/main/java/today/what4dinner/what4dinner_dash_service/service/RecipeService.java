@@ -1,5 +1,6 @@
 package today.what4dinner.what4dinner_dash_service.service;
 
+import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 
 import java.util.List;
@@ -14,4 +15,14 @@ public interface RecipeService {
      * @return the user's recipe summaries (empty if none)
      */
     List<RecipeSummary> getRecipesForUser(UUID userId);
+
+    /**
+     * Creates a recipe together with its steps and each step's ingredients, in a single
+     * transaction. The flat {@code recipe_ingredients} list is derived from the steps.
+     *
+     * @throws org.springframework.web.server.ResponseStatusException 400 if the title is blank,
+     *         a time or amount is negative, or an ingredient is missing / not in the caller's
+     *         family; 401 if the user row is gone
+     */
+    RecipeSummary createRecipe(UUID userId, CreateRecipeRequest request);
 }

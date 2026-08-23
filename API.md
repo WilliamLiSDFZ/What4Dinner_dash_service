@@ -84,6 +84,99 @@ Returns an empty array `[]` if the user has no recipes.
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/api/v1/recipe
 ```
 
+### `POST /v1/recipe` — create a recipe
+
+_Authenticated._ Creates a recipe together with its ordered steps and each step's ingredients, **in a single transaction** — if any part is rejected, nothing is written.
+
+The owning `user_id` comes from the JWT `sub` claim and `family_id` from that user's family; neither is accepted from the request.
+
+**Request**
+
+```
+POST /api/v1/recipe
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "title": "西红柿炒鸡蛋",
+  "description": "家常快手菜",
+  "prepTimeMinutes": 5,
+  "cookTimeMinutes": 10,
+  "isPublic": false,
+  "steps": [
+    {
+      "instruction": "鸡蛋打散炒熟",
+      "isOptional": false,
+      "ingredients": [
+        { "ingredientId": "0822ac43-…", "amount": 2, "unit": "个", "prepNote": "打散" }
+      ]
+    },
+    {
+      "instruction": "加西红柿翻炒",
+      "ingredients": [
+        { "ingredientId": "dedaabbb-…", "amountText": "两个", "isOptional": true }
+      ]
+    }
+  ]
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `title` | string | **Required.** Trimmed before storing |
+| `description` | string \| null | Optional |
+| `prepTimeMinutes` / `cookTimeMinutes` | int \| null | Optional. Must not be negative |
+| `isPublic` | boolean \| null | Optional, defaults `false` |
+| `steps` | array \| null | Optional. May be omitted or `[]` for a header-only recipe |
+| `steps[].instruction` | string \| null | |
+| `steps[].isOptional` | boolean \| null | Defaults `false` |
+| `steps[].ingredients[].ingredientId` | UUID | **Required** in each entry. Must already exist **in the caller's family** |
+| `steps[].ingredients[].amount` | number \| null | Must not be negative |
+| `steps[].ingredients[].amountText` | string \| null | Free text, e.g. `"两个"` |
+| `steps[].ingredients[].unit` | string \| null | |
+| `steps[].ingredients[].isOptional` | boolean \| null | Defaults `false` |
+| `steps[].ingredients[].prepNote` | string \| null | |
+
+**Step ordering is positional.** `step_order` is assigned from each step's index in the array (1-based); clients never send it.
+
+**Ingredients must pre-exist.** Create them first with `POST /v1/ingredient`; this endpoint never creates them implicitly. An id that does not exist — or belongs to another family — is a `400`.
+
+**`status` is always `done`.** `pending` is reserved for the AI generation pipeline.
+
+**The flat ingredient list is derived, not sent.** The server writes one `recipe_ingredients` row per *distinct* ingredient used across all steps. That row is marked optional only when **every** occurrence of it was optional — an ingredient that is required in any step counts as required for the recipe.
+
+**Response** `201 Created`
+
+```json
+{
+  "id": "e952e2e4-4e02-4802-8de1-81bb4fbfa150",
+  "title": "西红柿炒鸡蛋",
+  "description": "家常快手菜",
+  "status": "done"
+}
+```
+
+Same shape as the `GET /v1/recipe` items. There is no recipe-detail endpoint yet, so the nested structure is not echoed back — use the returned `id`.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Missing body, blank `title`, negative time or `amount`, missing `ingredientId`, or an `ingredientId` not in the caller's family |
+| `401 Unauthorized` | No / invalid token |
+
+**Example**
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"番茄炒蛋","steps":[{"instruction":"炒","ingredients":[{"ingredientId":"0822ac43-…","amount":2}]}]}' \
+  http://localhost:8082/api/v1/recipe
+```
+
+---
+
 ### `GET /v1/favorite` — list my favorites
 
 _Authenticated._ Returns summaries of the recipes the authenticated user has favorited (user resolved from the JWT `sub` claim). Ordered newest favorite first (`favorites.created_at DESC`).
