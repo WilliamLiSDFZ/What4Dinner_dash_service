@@ -13,11 +13,35 @@ import java.util.UUID;
 
 public interface RecipeRepository extends CrudRepository<Recipe, UUID> {
 
-    @Query("SELECT id, title, description, status FROM recipes WHERE user_id = :userId")
+    /**
+     * EXISTS rather than a LEFT JOIN: it cannot fan a recipe out into one row per like,
+     * and it short-circuits. Both per-user lookups hit the composite primary keys of
+     * {@code favorites} / {@code recipe_likes}; the count uses {@code idx_likes_recipe}.
+     */
+    @Query("""
+            SELECT r.id, r.title, r.description, r.status,
+                   EXISTS (SELECT 1 FROM favorites f
+                           WHERE f.recipe_id = r.id AND f.user_id = :userId)        AS favorited,
+                   EXISTS (SELECT 1 FROM recipe_likes l
+                           WHERE l.recipe_id = r.id AND l.user_id = :userId)        AS liked,
+                   (SELECT count(*) FROM recipe_likes lc WHERE lc.recipe_id = r.id) AS like_count
+            FROM recipes r
+            WHERE r.user_id = :userId
+            """)
     List<RecipeSummary> findSummariesByUserId(@Param("userId") UUID userId);
 
-    @Query("SELECT id, title, description, status FROM recipes WHERE id = :id")
-    Optional<RecipeSummary> findSummaryById(@Param("id") UUID id);
+    /** Takes the viewing user, because {@code favorited} / {@code liked} are per-user. */
+    @Query("""
+            SELECT r.id, r.title, r.description, r.status,
+                   EXISTS (SELECT 1 FROM favorites f
+                           WHERE f.recipe_id = r.id AND f.user_id = :userId)        AS favorited,
+                   EXISTS (SELECT 1 FROM recipe_likes l
+                           WHERE l.recipe_id = r.id AND l.user_id = :userId)        AS liked,
+                   (SELECT count(*) FROM recipe_likes lc WHERE lc.recipe_id = r.id) AS like_count
+            FROM recipes r
+            WHERE r.id = :id
+            """)
+    Optional<RecipeSummary> findSummaryById(@Param("id") UUID id, @Param("userId") UUID userId);
 
     /**
      * Ids are generated in Java rather than by the column default, because child rows

@@ -18,8 +18,17 @@ import java.util.UUID;
  */
 public interface FavoriteRepository extends Repository<Recipe, UUID> {
 
+    /**
+     * {@code favorited} is necessarily true for every row here, but it is selected anyway
+     * so this endpoint returns the same populated shape as {@code GET /v1/recipe} rather
+     * than nulls.
+     */
     @Query("""
-            SELECT r.id, r.title, r.description, r.status
+            SELECT r.id, r.title, r.description, r.status,
+                   true                                                             AS favorited,
+                   EXISTS (SELECT 1 FROM recipe_likes l
+                           WHERE l.recipe_id = r.id AND l.user_id = :userId)        AS liked,
+                   (SELECT count(*) FROM recipe_likes lc WHERE lc.recipe_id = r.id) AS like_count
             FROM favorites f
             JOIN recipes r ON r.id = f.recipe_id
             WHERE f.user_id = :userId

@@ -58,7 +58,10 @@ Authorization: Bearer <jwt>
     "id": "b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f",
     "title": "西红柿炒鸡蛋",
     "description": "家常快手菜",
-    "status": "done"
+    "status": "done",
+    "favorited": true,
+    "liked": false,
+    "likeCount": 12
   }
 ]
 ```
@@ -69,6 +72,11 @@ Authorization: Bearer <jwt>
 | `title` | string | Recipe name |
 | `description` | string \| null | Short description / notes |
 | `status` | string | `pending` or `done` |
+| `favorited` | boolean | Whether **you** have favorited it |
+| `liked` | boolean | Whether **you** have liked it |
+| `likeCount` | int | Total likes across **all** users |
+
+`favorited` and `liked` are **your own** state; `likeCount` is the global total. A row can therefore read `liked: false` with a non-zero `likeCount` — the same semantics as `GET /v1/like/{recipeId}`, which stays available for refreshing a single recipe.
 
 Returns an empty array `[]` if the user has no recipes.
 
@@ -152,11 +160,14 @@ Content-Type: application/json
   "id": "e952e2e4-4e02-4802-8de1-81bb4fbfa150",
   "title": "西红柿炒鸡蛋",
   "description": "家常快手菜",
-  "status": "done"
+  "status": "done",
+  "favorited": false,
+  "liked": false,
+  "likeCount": 0
 }
 ```
 
-Same shape as the `GET /v1/recipe` items. There is no recipe-detail endpoint yet, so the nested structure is not echoed back — use the returned `id`.
+Same shape as the `GET /v1/recipe` items — a freshly created recipe is naturally unfavorited, unliked, and at zero likes. There is no recipe-detail endpoint yet, so the nested structure is not echoed back — use the returned `id`.
 
 **Errors**
 
@@ -198,7 +209,10 @@ Authorization: Bearer <jwt>
     "id": "b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f",
     "title": "西红柿炒鸡蛋",
     "description": "家常快手菜",
-    "status": "done"
+    "status": "done",
+    "favorited": true,
+    "liked": false,
+    "likeCount": 12
   }
 ]
 ```
@@ -209,8 +223,11 @@ Authorization: Bearer <jwt>
 | `title` | string | Recipe name |
 | `description` | string \| null | Short description / notes |
 | `status` | string | `pending` or `done` |
+| `favorited` | boolean | Whether **you** have favorited it |
+| `liked` | boolean | Whether **you** have liked it |
+| `likeCount` | int | Total likes across **all** users |
 
-Returns an empty array `[]` if the user has no favorites. A favorited recipe owned by another user is still returned — favorites are not scoped to the recipe's owner.
+`favorited` is always `true` here by definition. Returns an empty array `[]` if the user has no favorites. A favorited recipe owned by another user is still returned — favorites are not scoped to the recipe's owner.
 
 **Errors**
 
@@ -278,6 +295,91 @@ curl -X PATCH \
   -d '{"favorited":true}' \
   http://localhost:8082/api/v1/favorite/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
 ```
+
+### `GET /v1/like/{recipeId}` — read like status
+
+_Authenticated._ Returns how many likes a recipe has in total, and whether the calling user (JWT `sub`) is one of them.
+
+**Response** `200 OK`
+
+```json
+{
+  "recipeId": "b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f",
+  "liked": false,
+  "likeCount": 12
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `recipeId` | UUID | The recipe |
+| `liked` | boolean | **This user's** own state |
+| `likeCount` | int | Total across **all** users |
+
+Note the two fields answer different questions: `liked` is personal, `likeCount` is global. A recipe can have `liked: false` with a non-zero `likeCount`.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | `recipeId` is not a UUID |
+| `401 Unauthorized` | No / invalid token |
+| `404 Not Found` | No recipe with that id |
+
+---
+
+### `PATCH /v1/like/{recipeId}` — like or unlike a recipe
+
+_Authenticated._ Sets whether the calling user likes the recipe.
+
+Sets an explicit desired state rather than toggling, so it is **idempotent** — repeating it, or a double-tapped button, lands on the same result and can never double-count (the table's composite primary key plus `ON CONFLICT DO NOTHING` guarantee it). Any existing recipe may be liked regardless of owner, including your own.
+
+**Request**
+
+```
+PATCH /api/v1/like/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "liked": true
+}
+```
+
+| Parameter | In | Type | Notes |
+|-----------|----|------|-------|
+| `recipeId` | path | UUID | Recipe to like / unlike |
+| `liked` | body | boolean | **Required.** `true` likes, `false` unlikes |
+
+**Response** `200 OK` — same shape as the `GET`, with the count already refreshed, so no follow-up request is needed:
+
+```json
+{
+  "recipeId": "b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f",
+  "liked": true,
+  "likeCount": 13
+}
+```
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Body missing, `liked` absent or null, or `recipeId` is not a UUID |
+| `401 Unauthorized` | No / invalid token |
+| `404 Not Found` | No recipe with that id |
+
+**Example**
+
+```bash
+curl -X PATCH \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"liked":true}' \
+  http://localhost:8082/api/v1/like/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+```
+
+---
 
 ### `GET /v1/ingredient` — list my family's ingredients
 
@@ -600,7 +702,6 @@ The following controllers exist as stubs and have no endpoints implemented yet:
 
 | Base path | Area |
 |-----------|------|
-| `/v1/like` | Recipe likes |
 | `/v1/shopping-list` | Shopping lists |
 
 ## Conventions

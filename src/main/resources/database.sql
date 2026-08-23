@@ -18,12 +18,12 @@ create table if not exists users
 
 create table if not exists family
 (
-    id                   uuid primary key default gen_random_uuid() not null,
-    family_name          text                                       null,
-    background_image_key VARCHAR(1024)                              NULL,
-    timezone varchar(255) not null default 'America/Los_Angeles',
-    currency_unit varchar(255) not null default 'USD',
-    created_at           timestamp        DEFAULT current_timestamp
+    id                   uuid primary key       default gen_random_uuid() not null,
+    family_name          text          null,
+    background_image_key VARCHAR(1024) NULL,
+    timezone             varchar(255)  not null default 'America/Los_Angeles',
+    currency_unit        varchar(255)  not null default 'USD',
+    created_at           timestamp              DEFAULT current_timestamp
 );
 
 CREATE TABLE IF NOT EXISTS categories
@@ -92,6 +92,14 @@ CREATE TABLE IF NOT EXISTS step_ingredients
     unit          VARCHAR(16),
     is_optional   BOOLEAN          DEFAULT false,
     prep_note     text
+);
+
+create table if not exists step_images
+(
+    id          uuid primary key default gen_random_uuid() not null,
+    step_id     uuid                                       NOT NULL REFERENCES recipe_steps (id) ON DELETE CASCADE,
+    storage_key VARCHAR(1024)                              NOT NULL,
+    created_at  timestamp        DEFAULT current_timestamp
 );
 
 CREATE TABLE IF NOT EXISTS recipe_ingredients

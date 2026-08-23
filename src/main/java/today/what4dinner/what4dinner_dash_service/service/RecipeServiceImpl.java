@@ -12,7 +12,6 @@ import today.what4dinner.what4dinner_dash_service.repository.IngredientRepositor
 import today.what4dinner.what4dinner_dash_service.repository.RecipeRepository;
 import today.what4dinner.what4dinner_dash_service.repository.UserRepository;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,7 +117,7 @@ public class RecipeServiceImpl implements RecipeService {
                     entry.getKey(), entry.getValue());
         }
 
-        return recipeRepository.findSummaryById(recipeId)
+        return recipeRepository.findSummaryById(recipeId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                         "Recipe vanished after insert"));
     }
