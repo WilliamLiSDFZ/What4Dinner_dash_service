@@ -65,7 +65,11 @@ public class RecipeServiceImpl implements RecipeService {
         // partially written recipe behind. Tracks whether an ingredient was optional at
         // *every* occurrence, which is what the derived recipe_ingredients row records.
         Map<UUID, Boolean> optionalEverywhere = new LinkedHashMap<>();
+        String keyPrefix = "family/" + familyId + "/";
         for (CreateRecipeStepRequest step : steps) {
+            for (String imageKey : step.getImageKeys() == null ? List.<String>of() : step.getImageKeys()) {
+                requireOwnedImageKey(imageKey, keyPrefix);
+            }
             List<CreateStepIngredientRequest> stepIngredients =
                     step.getIngredients() == null ? List.of() : step.getIngredients();
             for (CreateStepIngredientRequest ingredient : stepIngredients) {
@@ -108,6 +112,11 @@ public class RecipeServiceImpl implements RecipeService {
                         ingredient.getAmountText(), ingredient.getUnit(),
                         Boolean.TRUE.equals(ingredient.getIsOptional()), ingredient.getPrepNote());
             }
+
+            // Keys were already validated above; a step may carry any number of images.
+            for (String imageKey : step.getImageKeys() == null ? List.<String>of() : step.getImageKeys()) {
+                recipeRepository.insertStepImage(UUID.randomUUID(), stepId, imageKey.trim());
+            }
         }
 
         // recipe_ingredients is derived, not client-supplied: one row per distinct
@@ -120,6 +129,29 @@ public class RecipeServiceImpl implements RecipeService {
         return recipeRepository.findSummaryById(recipeId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                         "Recipe vanished after insert"));
+    }
+
+    /**
+     * The only client-supplied storage key in the API — everywhere else the server builds
+     * the whole path. Requiring the caller's own family prefix is what stops a recipe from
+     * attaching another family's object; rejecting ".." stops escaping that prefix. The
+     * length check turns an over-long key into a 400 rather than a database error.
+     *
+     * <p>Verifies ownership and shape, not existence: a key for an object that was never
+     * uploaded is accepted, matching how {@code family.background_image_key} behaves.
+     */
+    private void requireOwnedImageKey(String imageKey, String keyPrefix) {
+        if (imageKey == null || imageKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKeys must not contain blanks");
+        }
+        String key = imageKey.trim();
+        if (key.length() > 1024) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKey is too long");
+        }
+        if (key.contains("..") || !key.startsWith(keyPrefix)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "imageKey must be an object key belonging to your family");
+        }
     }
 
     private void requireNonNegative(Integer minutes, String field) {

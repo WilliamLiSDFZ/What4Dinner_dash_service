@@ -21,4 +21,10 @@ public class CreateRecipeStepRequest {
 
     /** Ingredients used by this step. May be null or empty. */
     private List<CreateStepIngredientRequest> ingredients;
+
+    /**
+     * Optional object keys from {@code POST /v1/image/upload-url} (purpose {@code step}).
+     * May be null or empty. Each key must belong to the caller's family.
+     */
+    private List<String> imageKeys;
 }

@@ -93,6 +93,15 @@ public interface RecipeRepository extends CrudRepository<Recipe, UUID> {
                               @Param("isOptional") boolean isOptional,
                               @Param("prepNote") String prepNote);
 
+    @Modifying
+    @Query("""
+            INSERT INTO step_images (id, step_id, storage_key)
+            VALUES (:id, :stepId, :storageKey)
+            """)
+    void insertStepImage(@Param("id") UUID id,
+                         @Param("stepId") UUID stepId,
+                         @Param("storageKey") String storageKey);
+
     /** Flat per-recipe ingredient list, derived from the steps rather than sent by clients. */
     @Modifying
     @Query("""

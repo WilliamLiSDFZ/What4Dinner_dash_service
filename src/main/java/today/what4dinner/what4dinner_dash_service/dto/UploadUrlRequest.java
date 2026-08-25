@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class UploadUrlRequest {
 
-    /** One of: recipe, recipe-raw, family-background, ingredient. */
+    /** One of: recipe, recipe-raw, family-background, ingredient, step. */
     private String purpose;
 
     /** One of: image/jpeg, image/png, image/webp, image/heic. */

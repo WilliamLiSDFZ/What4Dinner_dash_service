@@ -115,6 +115,7 @@ Content-Type: application/json
     {
       "instruction": "鸡蛋打散炒熟",
       "isOptional": false,
+      "imageKeys": ["family/596162e9-…/step/ab12….jpg"],
       "ingredients": [
         { "ingredientId": "0822ac43-…", "amount": 2, "unit": "个", "prepNote": "打散" }
       ]
@@ -138,6 +139,7 @@ Content-Type: application/json
 | `steps` | array \| null | Optional. May be omitted or `[]` for a header-only recipe |
 | `steps[].instruction` | string \| null | |
 | `steps[].isOptional` | boolean \| null | Defaults `false` |
+| `steps[].imageKeys` | array \| null | Optional object keys from `POST /v1/image/upload-url`. Any number per step |
 | `steps[].ingredients[].ingredientId` | UUID | **Required** in each entry. Must already exist **in the caller's family** |
 | `steps[].ingredients[].amount` | number \| null | Must not be negative |
 | `steps[].ingredients[].amountText` | string \| null | Free text, e.g. `"两个"` |
@@ -148,6 +150,10 @@ Content-Type: application/json
 **Step ordering is positional.** `step_order` is assigned from each step's index in the array (1-based); clients never send it.
 
 **Ingredients must pre-exist.** Create them first with `POST /v1/ingredient`; this endpoint never creates them implicitly. An id that does not exist — or belongs to another family — is a `400`.
+
+**Step images are optional and validated.** Upload each image first via `POST /v1/image/upload-url` with `"purpose": "step"`, then pass the returned `objectName` values in `imageKeys`. A step may carry any number of images; omit the field or send `[]` for none. Ordering is insertion order — the table has no explicit ordering column.
+
+Because `imageKeys` is the one place a client supplies a storage key rather than the server generating it, each key must start with `family/{your familyId}/` and must not contain `..`; anything else is a `400`. This prevents attaching another family's object to your recipe. Keys are checked for ownership and shape, **not** existence — a key whose object was never uploaded is accepted.
 
 **`status` is always `done`.** `pending` is reserved for the AI generation pipeline.
 
@@ -173,7 +179,7 @@ Same shape as the `GET /v1/recipe` items — a freshly created recipe is natural
 
 | Status | When |
 |--------|------|
-| `400 Bad Request` | Missing body, blank `title`, negative time or `amount`, missing `ingredientId`, or an `ingredientId` not in the caller's family |
+| `400 Bad Request` | Missing body, blank `title`, negative time or `amount`, missing `ingredientId`, an `ingredientId` not in the caller's family, or an `imageKey` that is blank, over 1024 chars, or not under `family/{your familyId}/` |
 | `401 Unauthorized` | No / invalid token |
 
 **Example**
@@ -495,7 +501,7 @@ Content-Type: application/json
 
 | Field | Allowed values |
 |-------|----------------|
-| `purpose` | `recipe`, `recipe-raw`, `family-background`, `ingredient` |
+| `purpose` | `recipe`, `recipe-raw`, `family-background`, `ingredient`, `step` |
 | `contentType` | `image/jpeg`, `image/png`, `image/webp`, `image/heic` |
 
 **Response** `200 OK`

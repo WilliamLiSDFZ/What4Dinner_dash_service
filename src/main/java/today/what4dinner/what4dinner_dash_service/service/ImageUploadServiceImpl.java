@@ -27,7 +27,8 @@ public class ImageUploadServiceImpl implements ImageUploadService {
             "recipe", "recipe",
             "recipe-raw", "recipe-raw",
             "family-background", "family-background",
-            "ingredient", "ingredient");
+            "ingredient", "ingredient",
+            "step", "step");
 
     /** Allowed content types → file extension. Fixed; never client text. */
     private static final Map<String, String> EXTENSIONS = Map.of(
