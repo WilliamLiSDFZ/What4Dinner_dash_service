@@ -37,6 +37,70 @@ Responses:
 - `401 Unauthorized` — missing, malformed, expired, or invalid-signature token.
 - `403 Forbidden` — authenticated but not permitted.
 
+## API index
+
+Every endpoint below links to its full section. All require a Bearer token except `/v1/health`.
+
+### Recipe
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/recipe`](#get-v1recipe--list-my-recipes) | My recipes, each with favorite / like state |
+| `POST` | [`/v1/recipe`](#post-v1recipe--create-a-recipe) | Create a recipe with steps and ingredients |
+| `DELETE` | [`/v1/recipe/{recipeId}`](#delete-v1reciperecipeid--delete-a-recipe) | Delete a recipe and everything under it |
+
+### Favorite
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/favorite`](#get-v1favorite--list-my-favorites) | Recipes I have favorited |
+| `PATCH` | [`/v1/favorite/{recipeId}`](#patch-v1favoriterecipeid--set-favorite-status) | Favorite / unfavorite a recipe |
+
+### Like
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/like/{recipeId}`](#get-v1likerecipeid--read-like-status) | Like count + whether I liked it |
+| `PATCH` | [`/v1/like/{recipeId}`](#patch-v1likerecipeid--like-or-unlike-a-recipe) | Like / unlike a recipe |
+
+### Ingredient
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/ingredient`](#get-v1ingredient--list-my-familys-ingredients) | My family's ingredients |
+| `POST` | [`/v1/ingredient`](#post-v1ingredient--add-an-ingredient) | Add an ingredient |
+| `DELETE` | [`/v1/ingredient/{ingredientId}`](#delete-v1ingredientingredientid--remove-an-ingredient) | Remove an ingredient |
+
+### Image
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | [`/v1/image/upload-url`](#post-v1imageupload-url--get-a-signed-upload-url) | Signed URL to upload an image to GCS |
+
+### User
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/user/me`](#get-v1userme--my-profile) | My profile |
+
+### Family
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/family`](#get-v1family--my-family) | My family, members, background image |
+
+### Setting
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/setting`](#get-v1setting--read-settings) | Read settings, grouped by scope |
+| `PATCH` | [`/v1/setting`](#patch-v1setting--update-settings) | Update settings (partial) |
+
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/health`](#get-v1health--liveness-probe) | Liveness probe (public) |
 ## Endpoints
 
 ### `GET /v1/recipe` — list my recipes
@@ -190,6 +254,35 @@ curl -X POST \
   -H 'Content-Type: application/json' \
   -d '{"title":"番茄炒蛋","steps":[{"instruction":"炒","ingredients":[{"ingredientId":"0822ac43-…","amount":2}]}]}' \
   http://localhost:8082/api/v1/recipe
+```
+
+---
+
+### `DELETE /v1/recipe/{recipeId}` — delete a recipe
+
+_Authenticated._ Deletes a recipe belonging to the caller's family.
+
+**Family-scoped, not uploader-scoped:** any member may delete any of the family's recipes, including one a relative uploaded. Note the asymmetry with `GET /v1/recipe`, which lists only recipes *you* uploaded — so a member can delete a recipe that does not appear in their own list.
+
+Everything belonging to the recipe goes with it via `ON DELETE CASCADE`: steps, step ingredients, step images, recipe ingredients, tags, favorites, likes, images, raw images, and shopping-list entries.
+
+**Response** `204 No Content`
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | `recipeId` is not a UUID |
+| `401 Unauthorized` | No / invalid token |
+| `404 Not Found` | No such recipe **in the caller's family** — this is also what refuses a cross-family delete, without revealing whether that recipe exists |
+
+> The GCS objects behind any image keys are **not** deleted; only the database rows are.
+
+**Example**
+
+```bash
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8082/api/v1/recipe/e952e2e4-4e02-4802-8de1-81bb4fbfa150
 ```
 
 ---
@@ -700,6 +793,20 @@ curl -X PATCH \
   -H 'Content-Type: application/json' \
   -d '{"family":{"timezone":"Asia/Shanghai","currencyUnit":"CNY"}}' \
   http://localhost:8082/api/v1/setting
+```
+
+### `GET /v1/health` — liveness probe
+
+_**Public** — the only endpoint that needs no token._ Used by the Docker healthcheck.
+
+**Response** `200 OK`
+
+```json
+{ "status": "UP" }
+```
+
+```bash
+curl http://localhost:8082/api/v1/health
 ```
 
 ## Planned endpoints

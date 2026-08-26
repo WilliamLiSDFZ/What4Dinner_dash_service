@@ -102,6 +102,19 @@ public interface RecipeRepository extends CrudRepository<Recipe, UUID> {
                          @Param("stepId") UUID stepId,
                          @Param("storageKey") String storageKey);
 
+    /**
+     * Family-scoped delete returning the affected row count, so "does it exist and is it
+     * mine?" and "delete it" are one statement — no separate existence check, hence no
+     * TOCTOU window. A count of 0 means missing *or* another family's; both are a 404, so
+     * the endpoint never leaks whether a foreign recipe exists.
+     *
+     * <p>Every other child of {@code recipes} cascades; {@code recipe_ingredients} does so
+     * only once its FK is altered to ON DELETE CASCADE.
+     */
+    @Modifying
+    @Query("DELETE FROM recipes WHERE id = :id AND family_id = :familyId")
+    int deleteByFamilyIdAndId(@Param("familyId") UUID familyId, @Param("id") UUID id);
+
     /** Flat per-recipe ingredient list, derived from the steps rather than sent by clients. */
     @Modifying
     @Query("""

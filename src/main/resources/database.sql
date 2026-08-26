@@ -105,7 +105,7 @@ create table if not exists step_images
 CREATE TABLE IF NOT EXISTS recipe_ingredients
 (
     id            uuid primary key default gen_random_uuid() not null,
-    recipe_id     uuid                                       NOT NULL REFERENCES recipes (id),
+    recipe_id     uuid                                       NOT NULL REFERENCES recipes (id) on DELETE cascade,
     ingredient_id uuid                                       not null REFERENCES ingredients (id),
     is_optional   BOOLEAN          DEFAULT false
 );

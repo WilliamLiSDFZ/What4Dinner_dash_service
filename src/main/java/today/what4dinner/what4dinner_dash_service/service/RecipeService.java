@@ -25,4 +25,17 @@ public interface RecipeService {
      *         family; 401 if the user row is gone
      */
     RecipeSummary createRecipe(UUID userId, CreateRecipeRequest request);
+
+    /**
+     * Deletes a recipe belonging to the caller's family, together with everything that
+     * cascades from it (steps, step ingredients and images, tags, favorites, likes,
+     * images, shopping-list entries).
+     *
+     * <p>Family-scoped, not uploader-scoped: any member may delete any of the family's
+     * recipes.
+     *
+     * @throws org.springframework.web.server.ResponseStatusException 404 if no such recipe
+     *         exists in the caller's family; 401 if the user row is gone
+     */
+    void deleteRecipe(UUID userId, UUID recipeId);
 }

@@ -4,7 +4,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,5 +54,19 @@ public class RecipeController {
         UUID userId = UUID.fromString(jwt.getSubject());
         RecipeSummary created = recipeService.createRecipe(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * Deletes a recipe from the caller's family, along with everything that cascades from
+     * it. Any family member may delete any of the family's recipes.
+     */
+    @DeleteMapping("/{recipeId}")
+    public ResponseEntity<Void> deleteRecipe(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID recipeId) {
+
+        UUID userId = UUID.fromString(jwt.getSubject());
+        recipeService.deleteRecipe(userId, recipeId);
+        return ResponseEntity.noContent().build();
     }
 }

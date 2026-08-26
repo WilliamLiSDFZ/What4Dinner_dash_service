@@ -132,6 +132,22 @@ public class RecipeServiceImpl implements RecipeService {
     }
 
     /**
+     * {@code @Transactional} is required, not decorative: the Spring Data JDBC repository
+     * proxy carries {@code @Transactional(readOnly = true)} metadata, and PostgreSQL
+     * rejects writes inside a read-only transaction.
+     */
+    @Override
+    @Transactional
+    public void deleteRecipe(UUID userId, UUID recipeId) {
+        UUID familyId = familyOf(userId);
+        // Scoping the delete by family is what stops a cross-family delete; a zero row
+        // count covers both "missing" and "not yours" without distinguishing them.
+        if (recipeRepository.deleteByFamilyIdAndId(familyId, recipeId) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Recipe not found");
+        }
+    }
+
+    /**
      * The only client-supplied storage key in the API — everywhere else the server builds
      * the whole path. Requiring the caller's own family prefix is what stops a recipe from
      * attaching another family's object; rejecting ".." stops escaping that prefix. The
