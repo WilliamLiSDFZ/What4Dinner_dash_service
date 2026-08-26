@@ -7,11 +7,19 @@ import org.springframework.web.server.ResponseStatusException;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeStepRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateStepIngredientRequest;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeDetailRow;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeStepDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
+import today.what4dinner.what4dinner_dash_service.dto.StepImageRow;
+import today.what4dinner.what4dinner_dash_service.dto.StepIngredientDetail;
+import today.what4dinner.what4dinner_dash_service.dto.StepIngredientRow;
+import today.what4dinner.what4dinner_dash_service.dto.StepRow;
 import today.what4dinner.what4dinner_dash_service.repository.IngredientRepository;
 import today.what4dinner.what4dinner_dash_service.repository.RecipeRepository;
 import today.what4dinner.what4dinner_dash_service.repository.UserRepository;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,17 +34,62 @@ public class RecipeServiceImpl implements RecipeService {
 
     private final IngredientRepository ingredientRepository;
 
+    private final ImageUploadService imageUploadService;
+
     public RecipeServiceImpl(RecipeRepository recipeRepository,
                              UserRepository userRepository,
-                             IngredientRepository ingredientRepository) {
+                             IngredientRepository ingredientRepository,
+                             ImageUploadService imageUploadService) {
         this.recipeRepository = recipeRepository;
         this.userRepository = userRepository;
         this.ingredientRepository = ingredientRepository;
+        this.imageUploadService = imageUploadService;
     }
 
     @Override
     public List<RecipeSummary> getRecipesForUser(UUID userId) {
-        return recipeRepository.findSummariesByUserId(userId);
+        return recipeRepository.findSummariesByFamilyId(familyOf(userId), userId);
+    }
+
+    /**
+     * Loads the whole recipe in a fixed four queries — header, steps, all step ingredients,
+     * all step images — then groups the children by step id in memory. Deliberately not
+     * one query per step, so cost does not grow with the number of steps.
+     */
+    @Override
+    public RecipeDetail getRecipeDetail(UUID userId, UUID recipeId) {
+        UUID familyId = familyOf(userId);
+        RecipeDetailRow header = recipeRepository.findDetailByFamilyIdAndId(recipeId, familyId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Recipe not found"));
+
+        Map<UUID, List<StepIngredientDetail>> ingredientsByStep = new LinkedHashMap<>();
+        for (StepIngredientRow row : recipeRepository.findStepIngredientsByRecipeId(recipeId)) {
+            ingredientsByStep.computeIfAbsent(row.getStepId(), k -> new ArrayList<>())
+                    .add(new StepIngredientDetail(row.getIngredientId(), row.getName(), row.getAmount(),
+                            row.getAmountText(), row.getUnit(), row.getIsOptional(), row.getPrepNote()));
+        }
+
+        Map<UUID, List<String>> imagesByStep = new LinkedHashMap<>();
+        for (StepImageRow row : recipeRepository.findStepImageKeysByRecipeId(recipeId)) {
+            // Signing is local computation, so one call per image costs no round trip.
+            // A null means storage is unconfigured; drop it rather than emit a broken entry.
+            String url = imageUploadService.createReadUrl(row.getStorageKey());
+            if (url != null) {
+                imagesByStep.computeIfAbsent(row.getStepId(), k -> new ArrayList<>()).add(url);
+            }
+        }
+
+        List<RecipeStepDetail> steps = new ArrayList<>();
+        for (StepRow row : recipeRepository.findStepsByRecipeId(recipeId)) {
+            steps.add(new RecipeStepDetail(row.getId(), row.getStepOrder(), row.getInstruction(),
+                    row.getIsOptional(),
+                    ingredientsByStep.getOrDefault(row.getId(), List.of()),
+                    imagesByStep.getOrDefault(row.getId(), List.of())));
+        }
+        return new RecipeDetail(header.getId(), header.getTitle(), header.getDescription(),
+                header.getPrepTimeMinutes(), header.getCookTimeMinutes(), header.getStatus(),
+                header.getIsPublic(), header.getCreatedAt(), header.getUpdatedAt(),
+                header.getFavorited(), header.getLiked(), header.getLikeCount(), steps);
     }
 
     /**

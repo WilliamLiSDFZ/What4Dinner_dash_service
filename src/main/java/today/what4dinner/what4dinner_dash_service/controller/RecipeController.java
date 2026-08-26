@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 import today.what4dinner.what4dinner_dash_service.service.RecipeService;
 
@@ -30,13 +31,26 @@ public class RecipeController {
     }
 
     /**
-     * Returns the authenticated user's recipes (id, title, description, status).
-     * The user id is taken from the JWT {@code sub} claim.
+     * Returns every recipe in the caller's family, each with that user's favorite / like
+     * state. The family is resolved from the JWT {@code sub} claim.
      */
     @GetMapping
     public ResponseEntity<List<RecipeSummary>> getMyRecipes(@AuthenticationPrincipal Jwt jwt) {
         UUID userId = UUID.fromString(jwt.getSubject());
         return ResponseEntity.ok(recipeService.getRecipesForUser(userId));
+    }
+
+    /**
+     * Returns one recipe in full — header, favorite/like state, and ordered steps with
+     * their ingredients and signed image URLs. Family-scoped, like the list and delete.
+     */
+    @GetMapping("/{recipeId}")
+    public ResponseEntity<RecipeDetail> getRecipe(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID recipeId) {
+
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.ok(recipeService.getRecipeDetail(userId, recipeId));
     }
 
     /**

@@ -45,8 +45,9 @@ Every endpoint below links to its full section. All require a Bearer token excep
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | [`/v1/recipe`](#get-v1recipe--list-my-recipes) | My recipes, each with favorite / like state |
-| `POST` | [`/v1/recipe`](#post-v1recipe--create-a-recipe) | Create a recipe with steps and ingredients |
+| `GET` | [`/v1/recipe`](#get-v1recipe--list-my-familys-recipes) | Every recipe in my family, with favorite / like state |
+| `POST` | [`/v1/recipe`](#post-v1recipe--create-a-recipe) | Create a recipe with steps, ingredients and images |
+| `GET` | [`/v1/recipe/{recipeId}`](#get-v1reciperecipeid--recipe-detail) | Full recipe: steps, ingredients, image URLs |
 | `DELETE` | [`/v1/recipe/{recipeId}`](#delete-v1reciperecipeid--delete-a-recipe) | Delete a recipe and everything under it |
 
 ### Favorite
@@ -103,9 +104,9 @@ Every endpoint below links to its full section. All require a Bearer token excep
 | `GET` | [`/v1/health`](#get-v1health--liveness-probe) | Liveness probe (public) |
 ## Endpoints
 
-### `GET /v1/recipe` — list my recipes
+### `GET /v1/recipe` — list my family's recipes
 
-_Authenticated._ Returns summaries of all recipes owned by the authenticated user (resolved from the JWT `sub` claim).
+_Authenticated._ Returns summaries of every recipe in the caller's **family** (resolved from the JWT `sub` claim → `users.family_id`), including ones uploaded by relatives.
 
 **Request**
 
@@ -142,7 +143,7 @@ Authorization: Bearer <jwt>
 
 `favorited` and `liked` are **your own** state; `likeCount` is the global total. A row can therefore read `liked: false` with a non-zero `likeCount` — the same semantics as `GET /v1/like/{recipeId}`, which stays available for refreshing a single recipe.
 
-Returns an empty array `[]` if the user has no recipes.
+Returns an empty array `[]` if the family has no recipes.
 
 **Errors**
 
@@ -254,6 +255,81 @@ curl -X POST \
   -H 'Content-Type: application/json' \
   -d '{"title":"番茄炒蛋","steps":[{"instruction":"炒","ingredients":[{"ingredientId":"0822ac43-…","amount":2}]}]}' \
   http://localhost:8082/api/v1/recipe
+```
+
+---
+
+### `GET /v1/recipe/{recipeId}` — recipe detail
+
+_Authenticated._ Returns one recipe in full: header, the caller's favorite/like state, and the ordered steps with their ingredients and images. **Family-scoped**, like `DELETE`.
+
+**Response** `200 OK`
+
+```json
+{
+  "id": "bff83bb2-…",
+  "title": "西红柿炒鸡蛋",
+  "description": "家常快手菜",
+  "prepTimeMinutes": 5,
+  "cookTimeMinutes": 10,
+  "status": "done",
+  "isPublic": false,
+  "createdAt": "2026-08-25T22:20:24",
+  "updatedAt": "2026-08-25T22:20:24",
+  "favorited": true,
+  "liked": true,
+  "likeCount": 1,
+  "steps": [
+    {
+      "id": "a1b2…",
+      "stepOrder": 1,
+      "instruction": "鸡蛋打散炒熟",
+      "isOptional": false,
+      "ingredients": [
+        { "ingredientId": "0822ac43-…", "name": "鸡蛋", "amount": 2,
+          "amountText": null, "unit": "个", "isOptional": false, "prepNote": "打散" }
+      ],
+      "images": ["https://storage.googleapis.com/…&X-Goog-Signature=…"]
+    },
+    {
+      "id": "c3d4…",
+      "stepOrder": 2,
+      "instruction": "加西红柿翻炒",
+      "isOptional": true,
+      "ingredients": [
+        { "ingredientId": "dedaabbb-…", "name": "西红柿", "amount": null,
+          "amountText": "两个", "unit": null, "isOptional": true, "prepNote": null }
+      ],
+      "images": []
+    }
+  ]
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `favorited` / `liked` | boolean | **Your own** state |
+| `likeCount` | int | Total across **all** users |
+| `steps` | array | Ordered by `stepOrder` |
+| `steps[].id` | UUID | Step id |
+| `steps[].ingredients[].name` | string | Joined from the ingredient, so no second call is needed |
+| `steps[].images` | array | **Signed GET URLs**, not object keys — empty when the step has none |
+
+**Images are short-lived signed URLs.** The bucket enforces public-access prevention, so a raw object key cannot be rendered by a browser. They expire per `gcs.signed-url-minutes` (default 15) — fetch the detail fresh rather than caching the URLs. If storage is unconfigured, `images` comes back empty rather than failing the whole response.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | `recipeId` is not a UUID |
+| `401 Unauthorized` | No / invalid token |
+| `404 Not Found` | No such recipe **in the caller's family** |
+
+**Example**
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8082/api/v1/recipe/bff83bb2-4574-4a1d-89d2-5b8f1c86a155
 ```
 
 ---

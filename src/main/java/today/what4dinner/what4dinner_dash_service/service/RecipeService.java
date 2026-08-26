@@ -1,6 +1,7 @@
 package today.what4dinner.what4dinner_dash_service.service;
 
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 
 import java.util.List;
@@ -9,12 +10,22 @@ import java.util.UUID;
 public interface RecipeService {
 
     /**
-     * Returns summaries (id, title, description, status) of all recipes owned by the given user.
+     * Returns summaries of every recipe in the given user's family, each annotated with
+     * that user's favorite / like state and the recipe's total like count.
      *
-     * @param userId the owning user's id
-     * @return the user's recipe summaries (empty if none)
+     * @param userId the viewing user; the family is resolved from them
+     * @return the family's recipe summaries (empty if none)
      */
     List<RecipeSummary> getRecipesForUser(UUID userId);
+
+    /**
+     * Returns one recipe in full — header, per-user flags, and ordered steps with their
+     * ingredients and signed image URLs.
+     *
+     * @throws org.springframework.web.server.ResponseStatusException 404 if no such recipe
+     *         exists in the caller's family; 401 if the user row is gone
+     */
+    RecipeDetail getRecipeDetail(UUID userId, UUID recipeId);
 
     /**
      * Creates a recipe together with its steps and each step's ingredients, in a single
