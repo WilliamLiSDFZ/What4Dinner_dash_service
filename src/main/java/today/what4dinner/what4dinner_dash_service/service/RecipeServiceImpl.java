@@ -4,11 +4,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import today.what4dinner.what4dinner_dash_service.dto.AddRecipeImagesRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeStepRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateStepIngredientRequest;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetailRow;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeImageDetail;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeImageRow;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeStepDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 import today.what4dinner.what4dinner_dash_service.dto.StepImageRow;
@@ -89,7 +92,8 @@ public class RecipeServiceImpl implements RecipeService {
         return new RecipeDetail(header.getId(), header.getTitle(), header.getDescription(),
                 header.getPrepTimeMinutes(), header.getCookTimeMinutes(), header.getStatus(),
                 header.getIsPublic(), header.getCreatedAt(), header.getUpdatedAt(),
-                header.getFavorited(), header.getLiked(), header.getLikeCount(), steps);
+                header.getFavorited(), header.getLiked(), header.getLikeCount(),
+                recipeImages(recipeId), steps);
     }
 
     /**
@@ -121,7 +125,8 @@ public class RecipeServiceImpl implements RecipeService {
         String keyPrefix = "family/" + familyId + "/";
         for (CreateRecipeStepRequest step : steps) {
             for (String imageKey : step.getImageKeys() == null ? List.<String>of() : step.getImageKeys()) {
-                requireOwnedImageKey(imageKey, keyPrefix);
+                // step_images.storage_key is VARCHAR(1024)
+                requireOwnedImageKey(imageKey, keyPrefix, 1024);
             }
             List<CreateStepIngredientRequest> stepIngredients =
                     step.getIngredients() == null ? List.of() : step.getIngredients();
@@ -201,6 +206,61 @@ public class RecipeServiceImpl implements RecipeService {
     }
 
     /**
+     * {@code @Transactional} does double duty: the Spring Data JDBC proxy carries
+     * {@code @Transactional(readOnly = true)} metadata that would otherwise block the
+     * writes, and it makes demote-then-insert atomic so a failure cannot leave the recipe
+     * without the cover it had.
+     */
+    @Override
+    @Transactional
+    public List<RecipeImageDetail> addRecipeImages(UUID userId, UUID recipeId,
+                                                   AddRecipeImagesRequest request) {
+        UUID familyId = familyOf(userId);
+        if (recipeRepository.countByFamilyIdAndId(familyId, recipeId) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Recipe not found");
+        }
+
+        List<String> keys = request.getImageKeys() == null ? List.of() : request.getImageKeys();
+        if (keys.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKeys is required");
+        }
+        // Validate everything before the first write, so a bad request writes nothing.
+        String keyPrefix = "family/" + familyId + "/";
+        for (String key : keys) {
+            // recipe_images.storage_key is VARCHAR(512) - narrower than step_images.
+            requireOwnedImageKey(key, keyPrefix, 512);
+        }
+        Integer primaryIndex = request.getPrimaryIndex();
+        if (primaryIndex != null && (primaryIndex < 0 || primaryIndex >= keys.size())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "primaryIndex must be between 0 and " + (keys.size() - 1));
+        }
+
+        if (primaryIndex != null) {
+            recipeRepository.clearPrimaryImage(recipeId);
+        }
+        // Continue after the current highest so repeated calls append rather than collide.
+        int nextOrder = recipeRepository.maxImageDisplayOrder(recipeId) + 1;
+        for (int i = 0; i < keys.size(); i++) {
+            recipeRepository.insertRecipeImage(UUID.randomUUID(), recipeId, keys.get(i).trim(),
+                    primaryIndex != null && primaryIndex == i, nextOrder + i, userId);
+        }
+        return recipeImages(recipeId);
+    }
+
+    /** Maps stored keys to short-lived signed URLs, dropping any that cannot be signed. */
+    private List<RecipeImageDetail> recipeImages(UUID recipeId) {
+        List<RecipeImageDetail> images = new ArrayList<>();
+        for (RecipeImageRow row : recipeRepository.findImagesByRecipeId(recipeId)) {
+            String url = imageUploadService.createReadUrl(row.getStorageKey());
+            if (url != null) {
+                images.add(new RecipeImageDetail(row.getId(), url, row.getIsPrimary(), row.getDisplayOrder()));
+            }
+        }
+        return images;
+    }
+
+    /**
      * The only client-supplied storage key in the API — everywhere else the server builds
      * the whole path. Requiring the caller's own family prefix is what stops a recipe from
      * attaching another family's object; rejecting ".." stops escaping that prefix. The
@@ -209,12 +269,12 @@ public class RecipeServiceImpl implements RecipeService {
      * <p>Verifies ownership and shape, not existence: a key for an object that was never
      * uploaded is accepted, matching how {@code family.background_image_key} behaves.
      */
-    private void requireOwnedImageKey(String imageKey, String keyPrefix) {
+    private void requireOwnedImageKey(String imageKey, String keyPrefix, int maxLength) {
         if (imageKey == null || imageKey.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKeys must not contain blanks");
         }
         String key = imageKey.trim();
-        if (key.length() > 1024) {
+        if (key.length() > maxLength) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKey is too long");
         }
         if (key.contains("..") || !key.startsWith(keyPrefix)) {

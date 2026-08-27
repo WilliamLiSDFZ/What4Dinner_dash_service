@@ -1,6 +1,8 @@
 package today.what4dinner.what4dinner_dash_service.service;
 
+import today.what4dinner.what4dinner_dash_service.dto.AddRecipeImagesRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeImageDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 
@@ -49,4 +51,18 @@ public interface RecipeService {
      *         exists in the caller's family; 401 if the user row is gone
      */
     void deleteRecipe(UUID userId, UUID recipeId);
+
+    /**
+     * Attaches user-uploaded photos to the recipe itself ({@code recipe_images}, always
+     * {@code source = 'user'}). Never touches {@code recipe_raw_images}, which is reserved
+     * for the AI pipeline's source screenshots.
+     *
+     * <p>If {@code primaryIndex} is given, the recipe's existing cover is demoted in the
+     * same transaction — the schema permits only one cover per recipe.
+     *
+     * @throws org.springframework.web.server.ResponseStatusException 400 for an empty key
+     *         list, a key not owned by the caller's family, or an out-of-range
+     *         {@code primaryIndex}; 404 if the recipe is not in the caller's family
+     */
+    List<RecipeImageDetail> addRecipeImages(UUID userId, UUID recipeId, AddRecipeImagesRequest request);
 }

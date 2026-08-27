@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import today.what4dinner.what4dinner_dash_service.dto.AddRecipeImagesRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeImageDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 import today.what4dinner.what4dinner_dash_service.service.RecipeService;
@@ -68,6 +70,25 @@ public class RecipeController {
         UUID userId = UUID.fromString(jwt.getSubject());
         RecipeSummary created = recipeService.createRecipe(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * Attaches user-uploaded photos to the recipe. Writes {@code recipe_images} with
+     * {@code source = 'user'}; never touches {@code recipe_raw_images}, which is reserved
+     * for the AI pipeline's source screenshots.
+     */
+    @PostMapping("/{recipeId}/image")
+    public ResponseEntity<List<RecipeImageDetail>> addRecipeImages(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID recipeId,
+            @RequestBody(required = false) AddRecipeImagesRequest request) {
+
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKeys is required");
+        }
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(recipeService.addRecipeImages(userId, recipeId, request));
     }
 
     /**

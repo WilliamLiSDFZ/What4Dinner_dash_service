@@ -44,6 +44,9 @@ public class RecipeDetail {
 
     private long likeCount;
 
+    /** Recipe-level photos, ordered by {@code displayOrder}. Separate from step images. */
+    private List<RecipeImageDetail> images;
+
     /** Ordered by {@code step_order}. */
     private List<RecipeStepDetail> steps;
 }

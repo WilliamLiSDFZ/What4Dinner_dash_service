@@ -1,0 +1,12 @@
+[
+  {
+    "origin": [
+      "https://dash.what4dinner.today",
+      "https://auth.what4dinner.today",
+      "http://localhost:5173"
+    ],
+    "method": ["PUT", "GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Length", "ETag"],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -1,6 +1,7 @@
 package today.what4dinner.what4dinner_dash_service.repository;
 
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetailRow;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeImageRow;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 import today.what4dinner.what4dinner_dash_service.dto.StepImageRow;
 import today.what4dinner.what4dinner_dash_service.dto.StepIngredientRow;
@@ -155,6 +156,50 @@ public interface RecipeRepository extends CrudRepository<Recipe, UUID> {
     void insertStepImage(@Param("id") UUID id,
                          @Param("stepId") UUID stepId,
                          @Param("storageKey") String storageKey);
+
+    /** Cheap ownership check for the recipe-image endpoints. */
+    @Query("SELECT count(*) FROM recipes WHERE id = :id AND family_id = :familyId")
+    long countByFamilyIdAndId(@Param("familyId") UUID familyId, @Param("id") UUID id);
+
+    /** -1 when the recipe has no images yet, so the first one lands at display_order 0. */
+    @Query("SELECT COALESCE(MAX(display_order), -1) FROM recipe_images WHERE recipe_id = :recipeId")
+    int maxImageDisplayOrder(@Param("recipeId") UUID recipeId);
+
+    /**
+     * Demotes the current cover. Required before inserting a new one: the partial unique
+     * index {@code uk_recipe_image_primary} allows only one {@code is_primary = true} row
+     * per recipe, so a second insert would otherwise be rejected.
+     */
+    @Modifying
+    @Query("UPDATE recipe_images SET is_primary = false WHERE recipe_id = :recipeId AND is_primary = true")
+    void clearPrimaryImage(@Param("recipeId") UUID recipeId);
+
+    /**
+     * {@code source} and {@code status} are SQL literals rather than parameters — this
+     * endpoint must only ever write user photos, never an {@code 'ai'} row belonging to the
+     * generation pipeline.
+     */
+    @Modifying
+    @Query("""
+            INSERT INTO recipe_images (id, recipe_id, source, storage_key, status,
+                                       is_primary, display_order, uploaded_by)
+            VALUES (:id, :recipeId, 'user', :storageKey, 'done',
+                    :isPrimary, :displayOrder, :uploadedBy)
+            """)
+    void insertRecipeImage(@Param("id") UUID id,
+                           @Param("recipeId") UUID recipeId,
+                           @Param("storageKey") String storageKey,
+                           @Param("isPrimary") boolean isPrimary,
+                           @Param("displayOrder") int displayOrder,
+                           @Param("uploadedBy") UUID uploadedBy);
+
+    @Query("""
+            SELECT id, storage_key, is_primary, display_order
+            FROM recipe_images
+            WHERE recipe_id = :recipeId
+            ORDER BY display_order, created_at
+            """)
+    List<RecipeImageRow> findImagesByRecipeId(@Param("recipeId") UUID recipeId);
 
     /**
      * Family-scoped delete returning the affected row count, so "does it exist and is it

@@ -47,7 +47,8 @@ Every endpoint below links to its full section. All require a Bearer token excep
 |--------|----------|-------------|
 | `GET` | [`/v1/recipe`](#get-v1recipe--list-my-familys-recipes) | Every recipe in my family, with favorite / like state |
 | `POST` | [`/v1/recipe`](#post-v1recipe--create-a-recipe) | Create a recipe with steps, ingredients and images |
-| `GET` | [`/v1/recipe/{recipeId}`](#get-v1reciperecipeid--recipe-detail) | Full recipe: steps, ingredients, image URLs |
+| `GET` | [`/v1/recipe/{recipeId}`](#get-v1reciperecipeid--recipe-detail) | Full recipe: images, steps, ingredients |
+| `POST` | [`/v1/recipe/{recipeId}/image`](#post-v1reciperecipeidimage--attach-photos-to-a-recipe) | Attach user photos to a recipe |
 | `DELETE` | [`/v1/recipe/{recipeId}`](#delete-v1reciperecipeid--delete-a-recipe) | Delete a recipe and everything under it |
 
 ### Favorite
@@ -279,6 +280,10 @@ _Authenticated._ Returns one recipe in full: header, the caller's favorite/like 
   "favorited": true,
   "liked": true,
   "likeCount": 1,
+  "images": [
+    { "id": "…", "url": "https://storage.googleapis.com/…&X-Goog-Signature=…",
+      "isPrimary": true, "displayOrder": 0 }
+  ],
   "steps": [
     {
       "id": "a1b2…",
@@ -310,6 +315,7 @@ _Authenticated._ Returns one recipe in full: header, the caller's favorite/like 
 |-------|------|-------|
 | `favorited` / `liked` | boolean | **Your own** state |
 | `likeCount` | int | Total across **all** users |
+| `images` | array | **Recipe-level** photos, ordered by `displayOrder`. Distinct from `steps[].images` |
 | `steps` | array | Ordered by `stepOrder` |
 | `steps[].id` | UUID | Step id |
 | `steps[].ingredients[].name` | string | Joined from the ingredient, so no second call is needed |
@@ -330,6 +336,71 @@ _Authenticated._ Returns one recipe in full: header, the caller's favorite/like 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8082/api/v1/recipe/bff83bb2-4574-4a1d-89d2-5b8f1c86a155
+```
+
+---
+
+### `POST /v1/recipe/{recipeId}/image` — attach photos to a recipe
+
+_Authenticated._ Attaches user-uploaded photos to the recipe itself. Family-scoped.
+
+Upload each file first via `POST /v1/image/upload-url` with `"purpose": "recipe"`, then send the returned `objectName` values here.
+
+> **This is not the AI-input path.** Rows are written to `recipe_images` with `source = 'user'`. `recipe_raw_images` — reserved for the original recipe screenshots the AI pipeline analyses — is never touched by this endpoint.
+
+**Request**
+
+```
+POST /api/v1/recipe/e952e2e4-…/image
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "imageKeys": [
+    "family/596162e9-…/recipe/ab12….jpg",
+    "family/596162e9-…/recipe/cd34….jpg"
+  ],
+  "primaryIndex": 0
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `imageKeys` | array | **Required**, non-empty. Object keys under `family/{your familyId}/`, max 512 chars each |
+| `primaryIndex` | int \| null | Optional 0-based index selecting the cover. Omit it and no image becomes the cover; any existing cover is left alone |
+
+**Setting a cover replaces the old one.** A recipe may have at most one cover (`uk_recipe_image_primary`), so the previous cover is demoted to a normal image in the same transaction — it is **not** deleted. `displayOrder` continues from the recipe's current maximum, so repeated calls append.
+
+Stored rows always get `source = 'user'`, `status = 'done'`, and `uploaded_by` = the caller. The AI-only columns stay null.
+
+**Response** `201 Created` — every image on the recipe afterwards, ordered by `displayOrder`:
+
+```json
+[
+  { "id": "…", "url": "https://storage.googleapis.com/…&X-Goog-Signature=…",
+    "isPrimary": true, "displayOrder": 0 },
+  { "id": "…", "url": "https://…", "isPrimary": false, "displayOrder": 1 }
+]
+```
+
+`url` is a short-lived signed GET URL, not the object key — the bucket is non-public, and the key is never exposed.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Missing body, empty `imageKeys`, a key that is blank / over 512 chars / not under `family/{your familyId}/` or containing `..`, or a `primaryIndex` out of range |
+| `401 Unauthorized` | No / invalid token |
+| `404 Not Found` | No such recipe **in the caller's family** |
+
+**Example**
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"imageKeys":["family/596162e9-…/recipe/ab12….jpg"],"primaryIndex":0}' \
+  http://localhost:8082/api/v1/recipe/e952e2e4-…/image
 ```
 
 ---
