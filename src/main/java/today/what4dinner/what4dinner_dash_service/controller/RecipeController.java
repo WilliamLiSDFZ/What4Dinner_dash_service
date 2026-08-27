@@ -13,10 +13,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import today.what4dinner.what4dinner_dash_service.dto.AddRecipeImagesRequest;
+import today.what4dinner.what4dinner_dash_service.dto.AiTask;
+import today.what4dinner.what4dinner_dash_service.dto.GenerateRecipeRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeImageDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
+import today.what4dinner.what4dinner_dash_service.service.AiRecipeService;
 import today.what4dinner.what4dinner_dash_service.service.RecipeService;
 
 import java.util.List;
@@ -28,8 +31,11 @@ public class RecipeController {
 
     private final RecipeService recipeService;
 
-    public RecipeController(RecipeService recipeService) {
+    private final AiRecipeService aiRecipeService;
+
+    public RecipeController(RecipeService recipeService, AiRecipeService aiRecipeService) {
         this.recipeService = recipeService;
+        this.aiRecipeService = aiRecipeService;
     }
 
     /**
@@ -70,6 +76,33 @@ public class RecipeController {
         UUID userId = UUID.fromString(jwt.getSubject());
         RecipeSummary created = recipeService.createRecipe(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * Submits recipe photos for AI analysis. Returns {@code 202} immediately with a task id;
+     * the recipe row already exists at {@code status = "pending"}. Poll
+     * {@code GET /v1/recipe/generate/{taskId}} for the outcome.
+     */
+    @PostMapping("/generate")
+    public ResponseEntity<AiTask> generateRecipe(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody(required = false) GenerateRecipeRequest request) {
+
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKeys is required");
+        }
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.accepted().body(aiRecipeService.submit(userId, request));
+    }
+
+    /** Polls one generation task. {@code 404} once the task is unknown or its TTL has expired. */
+    @GetMapping("/generate/{taskId}")
+    public ResponseEntity<AiTask> getGenerationTask(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID taskId) {
+
+        return ResponseEntity.ok(aiRecipeService.findTask(taskId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found")));
     }
 
     /**

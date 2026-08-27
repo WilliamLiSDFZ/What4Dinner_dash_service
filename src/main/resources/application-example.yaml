@@ -14,6 +14,11 @@ spring:
   sql:
     init:
       mode: always
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
 
 jwt:
   private-key: ${JWT_PRIVATE_KEY:classpath:keys/your-private.pem}
@@ -24,3 +29,8 @@ gcs:
   bucket: ${GCS_BUCKET:}
   credentials: ${GCS_CREDENTIALS:classpath:keys/gcp-key.json}
   signed-url-minutes: ${GCS_SIGNED_URL_MINUTES:15}
+
+anthropic:
+  api-key: ${ANTHROPIC_API_KEY:}
+  model: ${ANTHROPIC_MODEL:claude-sonnet-5}
+  max-images: ${ANTHROPIC_MAX_IMAGES:10}

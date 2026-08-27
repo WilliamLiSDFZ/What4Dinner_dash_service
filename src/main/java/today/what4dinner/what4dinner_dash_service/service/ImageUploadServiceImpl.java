@@ -1,5 +1,6 @@
 package today.what4dinner.what4dinner_dash_service.service;
 
+import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.HttpMethod;
@@ -93,6 +94,19 @@ public class ImageUploadServiceImpl implements ImageUploadService {
                 "PUT",
                 Map.of("Content-Type", contentType),
                 Instant.now().plus(Duration.ofMinutes(signedUrlMinutes)));
+    }
+
+    @Override
+    public byte[] readBytes(String objectName) {
+        Storage storage = storageProvider.getIfAvailable();
+        if (storage == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Image storage is not configured");
+        }
+        Blob blob = storage.get(BlobId.of(bucket, objectName));
+        if (blob == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Image not found: " + objectName);
+        }
+        return blob.getContent();
     }
 
     @Override

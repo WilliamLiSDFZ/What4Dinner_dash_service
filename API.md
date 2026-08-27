@@ -47,6 +47,8 @@ Every endpoint below links to its full section. All require a Bearer token excep
 |--------|----------|-------------|
 | `GET` | [`/v1/recipe`](#get-v1recipe--list-my-familys-recipes) | Every recipe in my family, with favorite / like state |
 | `POST` | [`/v1/recipe`](#post-v1recipe--create-a-recipe) | Create a recipe with steps, ingredients and images |
+| `POST` | [`/v1/recipe/generate`](#post-v1recipegenerate--generate-a-recipe-from-photos) | **AI**: generate a recipe from photos (async) |
+| `GET` | [`/v1/recipe/generate/{taskId}`](#get-v1recipegeneratetaskid--poll-a-generation-task) | Poll an AI generation task |
 | `GET` | [`/v1/recipe/{recipeId}`](#get-v1reciperecipeid--recipe-detail) | Full recipe: images, steps, ingredients |
 | `POST` | [`/v1/recipe/{recipeId}/image`](#post-v1reciperecipeidimage--attach-photos-to-a-recipe) | Attach user photos to a recipe |
 | `DELETE` | [`/v1/recipe/{recipeId}`](#delete-v1reciperecipeid--delete-a-recipe) | Delete a recipe and everything under it |
@@ -257,6 +259,76 @@ curl -X POST \
   -d '{"title":"番茄炒蛋","steps":[{"instruction":"炒","ingredients":[{"ingredientId":"0822ac43-…","amount":2}]}]}' \
   http://localhost:8082/api/v1/recipe
 ```
+
+---
+
+### `POST /v1/recipe/generate` — generate a recipe from photos
+
+_Authenticated._ Submits photos of a recipe for AI analysis. Returns **immediately** — the work runs in the background.
+
+Upload each photo first via `POST /v1/image/upload-url` with `"purpose": "recipe-raw"`, then send the keys here. They are stored in `recipe_raw_images` (the AI input record, distinct from `recipe_images` display photos).
+
+**Request**
+
+```
+POST /api/v1/recipe/generate
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{ "imageKeys": ["family/596162e9-…/recipe-raw/ab12….jpg"] }
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `imageKeys` | array | **Required**, non-empty, at most **10**. Keys under `family/{your familyId}/`, max 1024 chars |
+
+**Response** `202 Accepted` — accepted, **not** finished:
+
+```json
+{
+  "taskId": "3f2a…",
+  "recipeId": "9c81…",
+  "status": "pending",
+  "errorMessage": null
+}
+```
+
+The recipe row **already exists** at `status: "pending"` with a placeholder title, so `recipeId` is usable immediately. Poll the task for the outcome.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Missing body, empty `imageKeys`, more than 10, or a key that is blank / over 1024 chars / not under `family/{your familyId}/` / containing `..` |
+| `401 Unauthorized` | No / invalid token |
+| `503 Service Unavailable` | The model or the task store is not configured/reachable — nothing is written |
+
+---
+
+### `GET /v1/recipe/generate/{taskId}` — poll a generation task
+
+_Authenticated._ Returns the task's current state. Poll until `status` is terminal.
+
+| `status` | Meaning |
+|---|---|
+| `pending` | Accepted, not started |
+| `processing` | The model is working |
+| `done` | Finished — fetch `GET /v1/recipe/{recipeId}` for the result |
+| `failed` | Gave up; `errorMessage` says why. The recipe is left at `status: "failed"` with its raw images intact |
+
+```json
+{ "taskId": "3f2a…", "recipeId": "9c81…", "status": "done", "errorMessage": null }
+```
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `404 Not Found` | Unknown task, or its 24h TTL expired |
+| `401 Unauthorized` | No / invalid token |
+| `503 Service Unavailable` | Task storage unreachable — distinct from `404`, which means the task genuinely is not there |
+
+> **What the model produces**: title, description, prep/cook times, ordered steps, and each step's ingredients. It reuses your family's existing ingredients where they match and creates any it sees that you do not have yet. It does not generate tags or cover images.
 
 ---
 

@@ -13,6 +13,12 @@ services:
       - GCS_BUCKET
       - GCS_CREDENTIALS
       - GCS_SIGNED_URL_MINUTES
+      - ANTHROPIC_API_KEY
+      - ANTHROPIC_MODEL
+      # Redis runs outside compose - point REDIS_HOST at the host/server instance.
+      - REDIS_HOST
+      - REDIS_PORT
+      - REDIS_PASSWORD
       # JWT keys are baked into the image at classpath:keys/*.pem (see src/main/resources/keys).
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/api/v1/health"]

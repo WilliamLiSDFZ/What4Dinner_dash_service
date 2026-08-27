@@ -157,6 +157,60 @@ public interface RecipeRepository extends CrudRepository<Recipe, UUID> {
                          @Param("stepId") UUID stepId,
                          @Param("storageKey") String storageKey);
 
+    /**
+     * Creates the empty shell an AI generation fills in later. {@code title} is NOT NULL, so
+     * a placeholder is required; {@code status} starts at {@code 'pending'} — the counterpart
+     * to {@link #insertRecipe}, which hardcodes {@code 'done'} for hand-written recipes.
+     */
+    @Modifying
+    @Query("""
+            INSERT INTO recipes (id, user_id, family_id, title, status)
+            VALUES (:id, :userId, :familyId, :title, 'pending')
+            """)
+    void insertPendingRecipe(@Param("id") UUID id,
+                             @Param("userId") UUID userId,
+                             @Param("familyId") UUID familyId,
+                             @Param("title") String title);
+
+    /** The original photo the AI analysed. Distinct from {@code recipe_images} (display photos). */
+    @Modifying
+    @Query("""
+            INSERT INTO recipe_raw_images (id, recipe_id, storage_key)
+            VALUES (:id, :recipeId, :storageKey)
+            """)
+    void insertRawImage(@Param("id") UUID id,
+                        @Param("recipeId") UUID recipeId,
+                        @Param("storageKey") String storageKey);
+
+    @Modifying
+    @Query("""
+            UPDATE recipes
+            SET title = :title, description = :description,
+                prep_time_minutes = :prepTimeMinutes, cook_time_minutes = :cookTimeMinutes,
+                status = 'done', updated_at = current_timestamp
+            WHERE id = :id
+            """)
+    void completeGeneratedRecipe(@Param("id") UUID id,
+                                 @Param("title") String title,
+                                 @Param("description") String description,
+                                 @Param("prepTimeMinutes") Integer prepTimeMinutes,
+                                 @Param("cookTimeMinutes") Integer cookTimeMinutes);
+
+    /** Requires chk_status to permit 'failed' - see the ALTER in the plan. */
+    @Modifying
+    @Query("UPDATE recipes SET status = 'failed', updated_at = current_timestamp WHERE id = :id")
+    void markRecipeFailed(@Param("id") UUID id);
+
+    /**
+     * Startup sweep. An in-flight generation dies with the process, leaving its recipe stuck
+     * at {@code pending} forever; this closes those out. Safe because hand-written recipes are
+     * always inserted {@code 'done'}, so every {@code pending} row belongs to the AI pipeline.
+     */
+    @Modifying
+    @Query("UPDATE recipes SET status = 'failed', updated_at = current_timestamp "
+         + "WHERE status = 'pending' AND created_at < :cutoff")
+    int failStalePendingRecipes(@Param("cutoff") java.time.LocalDateTime cutoff);
+
     /** Cheap ownership check for the recipe-image endpoints. */
     @Query("SELECT count(*) FROM recipes WHERE id = :id AND family_id = :familyId")
     long countByFamilyIdAndId(@Param("familyId") UUID familyId, @Param("id") UUID id);

@@ -54,6 +54,18 @@ public interface IngredientRepository extends Repository<Ingredient, UUID> {
             """)
     long countReferences(@Param("id") UUID id);
 
+    /**
+     * Resolve-or-create support for AI generation: {@link #countByFamilyIdAndName} says
+     * whether a name exists, but the worker needs the id to reference it.
+     */
+    @Query("""
+            SELECT id FROM ingredients
+            WHERE family_id = :familyId AND lower(canonical_name) = lower(:canonicalName)
+            LIMIT 1
+            """)
+    Optional<UUID> findIdByFamilyIdAndName(@Param("familyId") UUID familyId,
+                                           @Param("canonicalName") String canonicalName);
+
     @Query("SELECT count(*) FROM categories WHERE id = :categoryId")
     long countCategoryById(@Param("categoryId") UUID categoryId);
 

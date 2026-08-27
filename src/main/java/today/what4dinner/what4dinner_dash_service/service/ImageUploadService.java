@@ -26,4 +26,13 @@ public interface ImageUploadService {
      * stays useful without the image.
      */
     String createReadUrl(String objectName);
+
+    /**
+     * Downloads an object's bytes. Needed because the bucket is private, so the model cannot
+     * be handed a URL — the image has to be inlined into the request.
+     *
+     * @throws org.springframework.web.server.ResponseStatusException 503 if storage is
+     *         unconfigured; 404 if the object does not exist
+     */
+    byte[] readBytes(String objectName);
 }
