@@ -8,15 +8,16 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
- * Structured-output target for AI recipe generation. The Anthropic Java SDK derives the JSON
- * schema from this class, so there is no hand-written schema and no manual parsing.
+ * Deserialization target for AI recipe generation: the model is asked for plain JSON and the
+ * reply is parsed into this class.
  *
- * <p>Deliberately Lombok classes rather than records — schema derivation goes through Jackson,
- * which needs a no-args constructor and setters. Records produced a malformed schema and
- * garbage output when this was first written.
+ * <p>Deliberately Lombok classes rather than records — parsing goes through Jackson, which
+ * needs a no-args constructor and setters.
  *
- * <p>The {@code @JsonPropertyDescription} text is carried into the schema, so it is prompt,
- * not documentation.
+ * <p>The {@code @JsonPropertyDescription} text is <em>documentation only</em>. Schema-derived
+ * structured output was tried and abandoned (see {@code AiRecipeServiceImpl.parseDraft}), so
+ * none of it reaches the model — the live contract is {@code AiRecipeServiceImpl.SYSTEM_PROMPT},
+ * and that is the string to change when the output shape changes.
  */
 @Data
 @AllArgsConstructor
@@ -48,6 +49,11 @@ public class RecipeDraft {
 
         @JsonPropertyDescription("True only if the step can be skipped without ruining the dish.")
         private Boolean isOptional;
+
+        @JsonPropertyDescription(
+                "Labels of the photos that plainly show THIS step, e.g. ['p2']. Empty when no "
+              + "photo shows this step, which is the normal case. Never a file name or a path.")
+        private List<String> photoKeys;
 
         @JsonPropertyDescription("Ingredients used by this step.")
         private List<DraftIngredient> ingredients;

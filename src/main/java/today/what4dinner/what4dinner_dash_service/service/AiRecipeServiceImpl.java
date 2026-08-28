@@ -28,11 +28,16 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class AiRecipeServiceImpl implements AiRecipeService {
@@ -46,6 +51,14 @@ public class AiRecipeServiceImpl implements AiRecipeService {
 
     private static final String PLACEHOLDER_TITLE = "Generating…";
 
+    /** A step with a wall of photos is a mapping failure, not a rich step. */
+    private static final int MAX_IMAGES_PER_STEP = 3;
+
+    /** Anchored on purpose: a storage key is full of UUID digits and must never match. */
+    private static final Pattern PHOTO_LABEL =
+            Pattern.compile("^(?:p|photo|image|img|pic|no\\.?|#)?[\\s._\\-:]*(\\d{1,3})$",
+                            Pattern.CASE_INSENSITIVE);
+
     private static final String SYSTEM_PROMPT = """
             You read photos of recipes and turn them into structured data.
 
@@ -57,18 +70,36 @@ public class AiRecipeServiceImpl implements AiRecipeService {
               to its key from the list below. Only when nothing in the list matches, leave
               ingredientKey null and set newIngredientName instead.
             - Never set both ingredientKey and newIngredientName.
+            - Photos are labelled. Each photo is preceded by a line "Photo pN:". Refer to a photo
+              only by that exact label - p1, p2, and so on. Never write a file name, a path, or a
+              number on its own.
+            - photoKeys attaches photos to a step. Put a photo in a step's photoKeys only when that
+              photo plainly shows that step being carried out: the pan at that moment, the hands
+              doing that action, the food in that state. If you are choosing between two steps for
+              a photo, that is a sign it belongs to neither.
+            - A photo that shows the recipe as a whole belongs to no step at all: a screenshot, a
+              photograph of a page or a card, a wall of text, a plated finished dish, a lay-out of
+              raw ingredients. Leave such a photo out of every step, even if it is the only photo
+              you were given.
+            - Most steps have no photo. An empty photoKeys is the normal answer, and it is better
+              to leave a step without a photo than to attach one that only roughly matches.
+            - The same photo may appear in more than one step when it genuinely shows each of them.
+              Do not put one photo into every step to avoid empty lists.
             - Keep title, description, steps and ingredient names in the same language as the photos.
 
             Respond with ONLY a JSON object, no prose and no markdown fence, in exactly this shape:
             {"title": string, "description": string|null,
              "prepTimeMinutes": int|null, "cookTimeMinutes": int|null,
              "steps": [{"instruction": string, "isOptional": bool,
+                        "photoKeys": [string],
                         "ingredients": [{"ingredientKey": string|null, "newIngredientName": string|null,
                                          "amount": number|null, "amountText": string|null,
                                          "unit": string|null, "isOptional": bool,
                                          "prepNote": string|null}]}]}
             Use null - not an empty string, not 0, not a placeholder - for anything the photos do
-            not state.
+            not state. photoKeys is the one exception: it is an array of quoted labels such as
+            ["p2"] or ["p1","p3"], and [] when no photo shows the step. Never null, never a bare
+            number.
             """;
 
     private final RecipeRepository recipeRepository;
@@ -120,6 +151,9 @@ public class AiRecipeServiceImpl implements AiRecipeService {
         for (String key : keys) {
             requireOwnedKey(key, keyPrefix);
         }
+        // Trim once, here: recipe_raw_images, the model request and step_images must all agree
+        // on the exact string, and requireOwnedKey only validated a local copy.
+        keys = keys.stream().map(String::trim).toList();
         if (anthropicProvider.getIfAvailable() == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "AI recipe generation is not configured");
@@ -161,7 +195,7 @@ public class AiRecipeServiceImpl implements AiRecipeService {
         try {
             taskStore.markProcessing(taskId);
             RecipeDraft draft = askModel(familyId, keys);
-            persistDraft(recipeId, familyId, draft);
+            persistDraft(recipeId, familyId, draft, keys);
             taskStore.markDone(taskId);
             log.info("AI generation finished for recipe {}", recipeId);
         } catch (Exception e) {
@@ -196,6 +230,22 @@ public class AiRecipeServiceImpl implements AiRecipeService {
         return byKey;
     }
 
+    /**
+     * Positional labels (p1, p2, …) so the model can point at a photo without ever seeing a
+     * storage key — and so nothing it says can name an object it was not given.
+     *
+     * <p>Built from the same immutable list on both sides of the model call, which is what makes
+     * rebuilding it in {@link #persistDraft} safe. If image loading ever becomes tolerant of a
+     * failure, the skip must happen here or the numbering desynchronises.
+     */
+    private static Map<String, String> photoMenu(List<String> keys) {
+        Map<String, String> byLabel = new LinkedHashMap<>();
+        for (int i = 0; i < keys.size(); i++) {
+            byLabel.put("p" + (i + 1), keys.get(i).trim());
+        }
+        return byLabel;
+    }
+
     private RecipeDraft askModel(UUID familyId, List<String> keys) {
         AnthropicClient client = anthropicProvider.getIfAvailable();
         if (client == null) {
@@ -205,7 +255,13 @@ public class AiRecipeServiceImpl implements AiRecipeService {
         Map<String, UUID> byKey = ingredientMenu(familyId, menu);
 
         List<ContentBlockParam> blocks = new ArrayList<>();
+        int photoNumber = 0;
         for (String key : keys) {
+            // The label goes before the image: ImageBlockParam has no title field, so a
+            // preceding text block is the only way to name a photo.
+            blocks.add(ContentBlockParam.ofText(TextBlockParam.builder()
+                    .text("Photo p" + (++photoNumber) + ":")
+                    .build()));
             byte[] bytes = imageUploadService.readBytes(key);
             blocks.add(ContentBlockParam.ofImage(ImageBlockParam.builder()
                     .source(Base64ImageSource.builder()
@@ -214,6 +270,13 @@ public class AiRecipeServiceImpl implements AiRecipeService {
                             .build())
                     .build()));
         }
+        // Restating the range after the images is what stops "p0" and out-of-range labels.
+        blocks.add(ContentBlockParam.ofText(TextBlockParam.builder()
+                .text(keys.size() == 1
+                        ? "You were shown 1 photo, labelled p1. Use only this label in photoKeys."
+                        : "You were shown " + keys.size() + " photos, labelled p1 through p"
+                                + keys.size() + ". Use only these labels in photoKeys.")
+                .build()));
         blocks.add(ContentBlockParam.ofText(TextBlockParam.builder()
                 .text(menu.isEmpty()
                         ? "The family has no saved ingredients yet, so name every ingredient you see."
@@ -275,21 +338,112 @@ public class AiRecipeServiceImpl implements AiRecipeService {
     }
 
     /**
+     * Turns the model's photo labels into storage keys, one list per step.
+     *
+     * <p>Unlike an ingredient key, an unresolvable photo label is dropped rather than thrown on:
+     * a photo is decoration, a step renders perfectly without one, and failing here would cost
+     * the caller an otherwise-correct recipe plus the model call that produced it. The counts
+     * are logged instead, so a prompt regression stays visible without being fatal.
+     */
+    private List<List<String>> resolvePhotos(List<RecipeDraft.DraftStep> steps, List<String> keys) {
+        Map<String, String> byLabel = photoMenu(keys);
+        Set<String> ownedKeys = new HashSet<>(byLabel.values());
+
+        List<List<String>> perStep = new ArrayList<>();
+        Map<String, Integer> usage = new LinkedHashMap<>();
+        int dropped = 0;
+        int kept = 0;
+        for (RecipeDraft.DraftStep step : steps) {
+            // Deduped after resolution, not before: two different labels can name one photo,
+            // and step_images has no unique constraint to catch the duplicate.
+            Set<String> resolved = new LinkedHashSet<>();
+            List<String> refs = step.getPhotoKeys() == null ? List.of() : step.getPhotoKeys();
+            for (String ref : refs) {
+                String storageKey = resolvePhoto(ref, byLabel, ownedKeys);
+                if (storageKey == null) {
+                    dropped++;
+                } else if (resolved.size() < MAX_IMAGES_PER_STEP) {
+                    resolved.add(storageKey);
+                }
+            }
+            for (String storageKey : resolved) {
+                usage.merge(storageKey, 1, Integer::sum);
+            }
+            kept += resolved.size();
+            perStep.add(new ArrayList<>(resolved));
+        }
+
+        // A photo pinned to every step is a whole-recipe shot the model spread around rather than
+        // leave fields empty - the exact thing the prompt forbids. Three steps is where "it
+        // genuinely shows all of them" stops being credible.
+        if (steps.size() >= 3) {
+            for (Map.Entry<String, Integer> entry : usage.entrySet()) {
+                if (entry.getValue() == steps.size()) {
+                    for (List<String> stepPhotos : perStep) {
+                        stepPhotos.remove(entry.getKey());
+                    }
+                    kept -= steps.size();
+                    log.info("Dropped a photo the model attached to all {} steps", steps.size());
+                }
+            }
+        }
+        if (dropped > 0) {
+            log.warn("Dropped {} unresolvable photo reference(s); kept {}", dropped, kept);
+        } else {
+            log.info("Mapped {} step photo(s) across {} step(s)", kept, steps.size());
+        }
+        return perStep;
+    }
+
+    /**
+     * Exact key first, then the label: a storage key carries two UUIDs worth of digits and would
+     * otherwise be mangled into a photo number by the numeric form below.
+     */
+    private String resolvePhoto(String ref, Map<String, String> byLabel, Set<String> ownedKeys) {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        String candidate = ref.trim();
+        if (ownedKeys.contains(candidate)) {
+            return candidate;                       // the model echoed a real key it was given
+        }
+        String direct = byLabel.get(candidate.toLowerCase());
+        if (direct != null) {
+            return direct;                          // "p3", "P3"
+        }
+        Matcher matcher = PHOTO_LABEL.matcher(candidate);
+        if (!matcher.matches()) {
+            return null;
+        }
+        // Labels are 1-based, so "p0" resolves to nothing. Deliberate: a model that is
+        // 0-indexing would otherwise shift every photo by one, silently and everywhere.
+        return byLabel.get("p" + Integer.parseInt(matcher.group(1)));
+    }
+
+    /**
      * Writes the whole draft in one transaction, mirroring {@code RecipeServiceImpl.createRecipe}:
-     * steps in order, per-step ingredients, and the derived flat {@code recipe_ingredients} list.
+     * steps in order, the photos the model attached to each, per-step ingredients, and the
+     * derived flat {@code recipe_ingredients} list.
      */
     @Transactional
-    protected void persistDraft(UUID recipeId, UUID familyId, RecipeDraft draft) {
+    protected void persistDraft(UUID recipeId, UUID familyId, RecipeDraft draft, List<String> keys) {
         StringBuilder menu = new StringBuilder();
         Map<String, UUID> byKey = ingredientMenu(familyId, menu);
 
         Map<UUID, Boolean> optionalEverywhere = new LinkedHashMap<>();
         List<RecipeDraft.DraftStep> steps = safeSteps(draft);
+        // Resolved up front, not per step: the "one photo on every step" check needs the whole
+        // picture before the first row is written.
+        List<List<String>> photosByStep = resolvePhotos(steps, keys);
         for (int i = 0; i < steps.size(); i++) {
             RecipeDraft.DraftStep step = steps.get(i);
             UUID stepId = UUID.randomUUID();
             recipeRepository.insertStep(stepId, recipeId, i + 1, step.getInstruction(),
                     Boolean.TRUE.equals(step.getIsOptional()));
+
+            for (String storageKey : photosByStep.get(i)) {
+                recipeRepository.insertStepImage(UUID.randomUUID(), stepId, storageKey);
+            }
 
             for (RecipeDraft.DraftIngredient ing : safeIngredients(step)) {
                 UUID ingredientId = resolveIngredient(familyId, byKey, ing);

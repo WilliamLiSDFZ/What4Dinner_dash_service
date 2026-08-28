@@ -329,6 +329,15 @@ _Authenticated._ Returns the task's current state. Poll until `status` is termin
 | `503 Service Unavailable` | Task storage unreachable — distinct from `404`, which means the task genuinely is not there |
 
 > **What the model produces**: title, description, prep/cook times, ordered steps, and each step's ingredients. It reuses your family's existing ingredients where they match and creates any it sees that you do not have yet. It does not generate tags or cover images.
+>
+> **It also maps your uploaded photos onto the steps.** Each submitted photo is shown to the model under a positional label (`p1`, `p2`, …) — never its object key — and a photo the model attaches to a step is written to `step_images`, so it comes back in `steps[].images` on the detail endpoint just like a hand-written recipe's.
+>
+> The mapping is deliberately conservative, so **expect many steps to have no photo**:
+>
+> - A photo is attached only when it plainly shows that step being carried out.
+> - A photo of the recipe *as a whole* — a screenshot, a page or card, a wall of text, the plated finished dish, a flat-lay of raw ingredients — is attached to **no** step. Submitting a single full-page screenshot therefore normally yields no step images at all; the recipe text is still extracted in full.
+> - One photo may legitimately appear on several steps, but a photo the model attaches to *every* step of a recipe with three or more steps is discarded as a whole-recipe shot.
+> - Labels the model invents (out of range, unparseable) are dropped rather than failing the generation, so a bad label costs you one photo, never the recipe.
 
 ---
 
@@ -391,7 +400,7 @@ _Authenticated._ Returns one recipe in full: header, the caller's favorite/like 
 | `steps` | array | Ordered by `stepOrder` |
 | `steps[].id` | UUID | Step id |
 | `steps[].ingredients[].name` | string | Joined from the ingredient, so no second call is needed |
-| `steps[].images` | array | **Signed GET URLs**, not object keys — empty when the step has none |
+| `steps[].images` | array | **Signed GET URLs**, not object keys — empty when the step has none. Populated either from the `imageKeys` sent to `POST /v1/recipe`, or, for a generated recipe, from the uploaded photos the model mapped onto that step |
 
 **Images are short-lived signed URLs.** The bucket enforces public-access prevention, so a raw object key cannot be rendered by a browser. They expire per `gcs.signed-url-minutes` (default 15) — fetch the detail fresh rather than caching the URLs. If storage is unconfigured, `images` comes back empty rather than failing the whole response.
 
