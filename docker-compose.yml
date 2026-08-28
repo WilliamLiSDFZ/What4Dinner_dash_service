@@ -1,6 +1,12 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      # Build steps use the host network so RUN can resolve DNS. Containers otherwise
+      # inherit a resolv.conf whose only entry is the systemd-resolved loopback stub,
+      # which Docker strips - leaving them with no resolver and Maven unable to reach
+      # repo.maven.apache.org.
+      network: host
     image: what4dinner-dash-service:latest
     container_name: what4dinner-dash-service
     ports:
