@@ -79,8 +79,10 @@ public class RedisAiTaskStore implements AiTaskStore {
         try {
             return redis.opsForValue().get(key);
         } catch (DataAccessException e) {
+            // Keep the cause: connection-refused, auth failure and timeout all surface as the
+            // same 503, and only the cause distinguishes them.
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Task storage is unavailable");
+                    "Task storage is unavailable", e);
         }
     }
 
@@ -109,8 +111,10 @@ public class RedisAiTaskStore implements AiTaskStore {
         try {
             redis.opsForValue().set(KEY_PREFIX + task.getTaskId(), objectMapper.writeValueAsString(task), TTL);
         } catch (DataAccessException e) {
+            // Keep the cause: connection-refused, auth failure and timeout all surface as the
+            // same 503, and only the cause distinguishes them.
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Task storage is unavailable");
+                    "Task storage is unavailable", e);
         }
     }
 }
