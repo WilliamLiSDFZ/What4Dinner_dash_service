@@ -10,11 +10,11 @@ import com.anthropic.models.messages.ThinkingConfigAdaptive;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import today.what4dinner.what4dinner_dash_service.dto.AiTask;
 import today.what4dinner.what4dinner_dash_service.dto.GenerateRecipeRequest;
@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -114,6 +115,20 @@ public class AiRecipeServiceImpl implements AiRecipeService {
 
     private final ObjectProvider<AnthropicClient> anthropicProvider;
 
+    /**
+     * Submitted to explicitly rather than through {@code @Async}. The annotation was silently
+     * inert here: {@code submit} calls the generation method on {@code this}, which never goes
+     * through the proxy that would apply it, so generation ran on the request thread.
+     */
+    private final Executor aiTaskExecutor;
+
+    /**
+     * Likewise explicit rather than {@code @Transactional}: the two write methods below are
+     * called from inside this bean, and Spring only computes transaction attributes for public
+     * methods anyway — so the annotations were dead twice over.
+     */
+    private final TransactionTemplate transactionTemplate;
+
     @Value("${anthropic.model:claude-sonnet-5}")
     private String model;
 
@@ -125,35 +140,40 @@ public class AiRecipeServiceImpl implements AiRecipeService {
                                UserRepository userRepository,
                                ImageUploadService imageUploadService,
                                AiTaskStore taskStore,
-                               ObjectProvider<AnthropicClient> anthropicProvider) {
+                               ObjectProvider<AnthropicClient> anthropicProvider,
+                               @Qualifier("aiTaskExecutor") Executor aiTaskExecutor,
+                               TransactionTemplate transactionTemplate) {
         this.recipeRepository = recipeRepository;
         this.ingredientRepository = ingredientRepository;
         this.userRepository = userRepository;
         this.imageUploadService = imageUploadService;
         this.taskStore = taskStore;
         this.anthropicProvider = anthropicProvider;
+        this.aiTaskExecutor = aiTaskExecutor;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
     public AiTask submit(UUID userId, GenerateRecipeRequest request) {
         UUID familyId = familyOf(userId);
-        List<String> keys = request.getImageKeys() == null ? List.of() : request.getImageKeys();
+        List<String> raw = request.getImageKeys() == null ? List.of() : request.getImageKeys();
 
         // Validate before anything is written, so a rejected request leaves nothing behind.
-        if (keys.isEmpty()) {
+        if (raw.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "imageKeys is required");
         }
-        if (keys.size() > maxImages) {
+        if (raw.size() > maxImages) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "At most " + maxImages + " images per request");
         }
         String keyPrefix = "family/" + familyId + "/";
-        for (String key : keys) {
+        for (String key : raw) {
             requireOwnedKey(key, keyPrefix);
         }
         // Trim once, here: recipe_raw_images, the model request and step_images must all agree
-        // on the exact string, and requireOwnedKey only validated a local copy.
-        keys = keys.stream().map(String::trim).toList();
+        // on the exact string, and requireOwnedKey only validated a local copy. A fresh variable
+        // rather than a reassignment, so the list can be captured by the lambda below.
+        List<String> keys = raw.stream().map(String::trim).toList();
         if (anthropicProvider.getIfAvailable() == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "AI recipe generation is not configured");
@@ -167,8 +187,9 @@ public class AiRecipeServiceImpl implements AiRecipeService {
         AiTask task = taskStore.create(taskId, recipeId);
         createShell(recipeId, userId, familyId, keys);
 
-        // Hand off to the pool; the caller gets 202 immediately.
-        generateAsync(taskId, recipeId, familyId, userId, List.copyOf(keys));
+        // Hand off to the pool; the caller gets 202 immediately. Submitted directly rather
+        // than via @Async, which a self-invocation would quietly bypass.
+        aiTaskExecutor.execute(() -> generateAsync(taskId, recipeId, familyId, userId, keys));
         return task;
     }
 
@@ -178,20 +199,20 @@ public class AiRecipeServiceImpl implements AiRecipeService {
     }
 
     /** The pending shell plus its raw images, so the recipe exists from the moment of submission. */
-    @Transactional
-    protected void createShell(UUID recipeId, UUID userId, UUID familyId, List<String> keys) {
-        recipeRepository.insertPendingRecipe(recipeId, userId, familyId, PLACEHOLDER_TITLE);
-        for (String key : keys) {
-            recipeRepository.insertRawImage(UUID.randomUUID(), recipeId, key.trim());
-        }
+    private void createShell(UUID recipeId, UUID userId, UUID familyId, List<String> keys) {
+        transactionTemplate.executeWithoutResult(status -> {
+            recipeRepository.insertPendingRecipe(recipeId, userId, familyId, PLACEHOLDER_TITLE);
+            for (String key : keys) {
+                recipeRepository.insertRawImage(UUID.randomUUID(), recipeId, key.trim());
+            }
+        });
     }
 
     /**
      * Runs on the {@code ai-gen-} pool. Every failure path must land the recipe in a terminal
      * state — a task that dies silently would leave the recipe stuck at {@code pending}.
      */
-    @Async("aiTaskExecutor")
-    public void generateAsync(UUID taskId, UUID recipeId, UUID familyId, UUID userId, List<String> keys) {
+    private void generateAsync(UUID taskId, UUID recipeId, UUID familyId, UUID userId, List<String> keys) {
         try {
             taskStore.markProcessing(taskId);
             RecipeDraft draft = askModel(familyId, keys);
@@ -425,47 +446,48 @@ public class AiRecipeServiceImpl implements AiRecipeService {
      * steps in order, the photos the model attached to each, per-step ingredients, and the
      * derived flat {@code recipe_ingredients} list.
      */
-    @Transactional
-    protected void persistDraft(UUID recipeId, UUID familyId, RecipeDraft draft, List<String> keys) {
-        StringBuilder menu = new StringBuilder();
-        Map<String, UUID> byKey = ingredientMenu(familyId, menu);
+    private void persistDraft(UUID recipeId, UUID familyId, RecipeDraft draft, List<String> keys) {
+        transactionTemplate.executeWithoutResult(status -> {
+            StringBuilder menu = new StringBuilder();
+            Map<String, UUID> byKey = ingredientMenu(familyId, menu);
 
-        Map<UUID, Boolean> optionalEverywhere = new LinkedHashMap<>();
-        List<RecipeDraft.DraftStep> steps = safeSteps(draft);
-        // Resolved up front, not per step: the "one photo on every step" check needs the whole
-        // picture before the first row is written.
-        List<List<String>> photosByStep = resolvePhotos(steps, keys);
-        for (int i = 0; i < steps.size(); i++) {
-            RecipeDraft.DraftStep step = steps.get(i);
-            UUID stepId = UUID.randomUUID();
-            recipeRepository.insertStep(stepId, recipeId, i + 1, step.getInstruction(),
-                    Boolean.TRUE.equals(step.getIsOptional()));
+            Map<UUID, Boolean> optionalEverywhere = new LinkedHashMap<>();
+            List<RecipeDraft.DraftStep> steps = safeSteps(draft);
+            // Resolved up front, not per step: the "one photo on every step" check needs the whole
+            // picture before the first row is written.
+            List<List<String>> photosByStep = resolvePhotos(steps, keys);
+            for (int i = 0; i < steps.size(); i++) {
+                RecipeDraft.DraftStep step = steps.get(i);
+                UUID stepId = UUID.randomUUID();
+                recipeRepository.insertStep(stepId, recipeId, i + 1, step.getInstruction(),
+                        Boolean.TRUE.equals(step.getIsOptional()));
 
-            for (String storageKey : photosByStep.get(i)) {
-                recipeRepository.insertStepImage(UUID.randomUUID(), stepId, storageKey);
-            }
-
-            for (RecipeDraft.DraftIngredient ing : safeIngredients(step)) {
-                UUID ingredientId = resolveIngredient(familyId, byKey, ing);
-                if (ingredientId == null) {
-                    continue;
+                for (String storageKey : photosByStep.get(i)) {
+                    recipeRepository.insertStepImage(UUID.randomUUID(), stepId, storageKey);
                 }
-                // Structured output fills absent numbers with 0 rather than null; a zero
-                // quantity is meaningless, so treat it as "not stated".
-                Double amount = ing.getAmount() == null || ing.getAmount() <= 0 ? null : ing.getAmount();
-                boolean optional = Boolean.TRUE.equals(ing.getIsOptional());
-                recipeRepository.insertStepIngredient(UUID.randomUUID(), stepId, ingredientId,
-                        amount, blankToNull(ing.getAmountText()), truncate(blankToNull(ing.getUnit()), 16),
-                        optional, blankToNull(ing.getPrepNote()));
-                optionalEverywhere.merge(ingredientId, optional, (a, b) -> a && b);
+
+                for (RecipeDraft.DraftIngredient ing : safeIngredients(step)) {
+                    UUID ingredientId = resolveIngredient(familyId, byKey, ing);
+                    if (ingredientId == null) {
+                        continue;
+                    }
+                    // Structured output fills absent numbers with 0 rather than null; a zero
+                    // quantity is meaningless, so treat it as "not stated".
+                    Double amount = ing.getAmount() == null || ing.getAmount() <= 0 ? null : ing.getAmount();
+                    boolean optional = Boolean.TRUE.equals(ing.getIsOptional());
+                    recipeRepository.insertStepIngredient(UUID.randomUUID(), stepId, ingredientId,
+                            amount, blankToNull(ing.getAmountText()), truncate(blankToNull(ing.getUnit()), 16),
+                            optional, blankToNull(ing.getPrepNote()));
+                    optionalEverywhere.merge(ingredientId, optional, (a, b) -> a && b);
+                }
             }
-        }
-        for (Map.Entry<UUID, Boolean> entry : optionalEverywhere.entrySet()) {
-            recipeRepository.insertRecipeIngredient(UUID.randomUUID(), recipeId, entry.getKey(), entry.getValue());
-        }
-        recipeRepository.completeGeneratedRecipe(recipeId,
-                truncate(blankToPlaceholder(draft.getTitle()), 512), blankToNull(draft.getDescription()),
-                nonNegative(draft.getPrepTimeMinutes()), nonNegative(draft.getCookTimeMinutes()));
+            for (Map.Entry<UUID, Boolean> entry : optionalEverywhere.entrySet()) {
+                recipeRepository.insertRecipeIngredient(UUID.randomUUID(), recipeId, entry.getKey(), entry.getValue());
+            }
+            recipeRepository.completeGeneratedRecipe(recipeId,
+                    truncate(blankToPlaceholder(draft.getTitle()), 512), blankToNull(draft.getDescription()),
+                    nonNegative(draft.getPrepTimeMinutes()), nonNegative(draft.getCookTimeMinutes()));
+        });
     }
 
     /** Existing key wins; otherwise create the named ingredient in this family, reusing any match. */
