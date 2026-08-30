@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import today.what4dinner.what4dinner_dash_service.dto.AddRecipeImagesRequest;
 import today.what4dinner.what4dinner_dash_service.dto.AiTask;
+import today.what4dinner.what4dinner_dash_service.dto.GenerateFromLinkRequest;
 import today.what4dinner.what4dinner_dash_service.dto.GenerateRecipeRequest;
 import today.what4dinner.what4dinner_dash_service.dto.CreateRecipeRequest;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeImageDetail;
@@ -93,6 +94,25 @@ public class RecipeController {
         }
         UUID userId = UUID.fromString(jwt.getSubject());
         return ResponseEntity.accepted().body(aiRecipeService.submit(userId, request));
+    }
+
+    /**
+     * Generates a recipe from a shared post instead of uploaded photos. Same {@code 202} and
+     * the same poll endpoint as {@code /generate}; only the input differs.
+     *
+     * <p>Takes the whole share blob, not just a URL — the share sheet wraps the link in title
+     * text and emoji, and making the user extract it by hand is a step they would get wrong.
+     */
+    @PostMapping("/generate/link")
+    public ResponseEntity<AiTask> generateRecipeFromLink(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody(required = false) GenerateFromLinkRequest request) {
+
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "shareText is required");
+        }
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.accepted().body(aiRecipeService.submitFromLink(userId, request));
     }
 
     /** Polls one generation task. {@code 404} once the task is unknown or its TTL has expired. */

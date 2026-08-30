@@ -35,4 +35,18 @@ public interface ImageUploadService {
      *         unconfigured; 404 if the object does not exist
      */
     byte[] readBytes(String objectName);
+
+    /**
+     * Uploads bytes the backend fetched itself, for content that never passes through the
+     * browser — the share-link importer downloads a post's photos server-side, so there is no
+     * client to hand a signed PUT to.
+     *
+     * <p>The key is generated exactly as {@link #createUploadUrl} generates it, from the same
+     * allowlists, so nothing the caller supplies reaches the path.
+     *
+     * @return the object key to store on the owning row
+     * @throws org.springframework.web.server.ResponseStatusException 400 for an unknown purpose
+     *         or contentType; 401 for an unknown user; 503 if storage is unconfigured
+     */
+    String writeBytes(UUID userId, String purpose, String contentType, byte[] bytes);
 }

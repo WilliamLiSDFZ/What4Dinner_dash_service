@@ -97,6 +97,34 @@ public class ImageUploadServiceImpl implements ImageUploadService {
     }
 
     @Override
+    public String writeBytes(UUID userId, String purpose, String contentType, byte[] bytes) {
+        String segment = PURPOSE_SEGMENTS.get(purpose);
+        if (segment == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "purpose must be one of " + PURPOSE_SEGMENTS.keySet());
+        }
+        String extension = EXTENSIONS.get(contentType);
+        if (extension == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "contentType must be one of " + EXTENSIONS.keySet());
+        }
+        Storage storage = storageProvider.getIfAvailable();
+        if (storage == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Image storage is not configured");
+        }
+        UUID familyId = userRepository.findFamilyIdById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unknown user"));
+
+        // Same key shape as createUploadUrl, for the same reason: every part server-controlled.
+        String objectName = "family/%s/%s/%s.%s".formatted(familyId, segment, UUID.randomUUID(), extension);
+        storage.create(BlobInfo.newBuilder(BlobId.of(bucket, objectName))
+                .setContentType(contentType)
+                .build(), bytes);
+        return objectName;
+    }
+
+    @Override
     public byte[] readBytes(String objectName) {
         Storage storage = storageProvider.getIfAvailable();
         if (storage == null) {

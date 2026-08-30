@@ -34,3 +34,8 @@ anthropic:
   api-key: ${ANTHROPIC_API_KEY:}
   model: ${ANTHROPIC_MODEL:claude-sonnet-5}
   max-images: ${ANTHROPIC_MAX_IMAGES:10}
+
+share-import:
+  timeout-seconds: ${SHARE_IMPORT_TIMEOUT_SECONDS:15}
+  max-images: ${SHARE_IMPORT_MAX_IMAGES:10}
+  max-image-bytes: ${SHARE_IMPORT_MAX_IMAGE_BYTES:8388608}

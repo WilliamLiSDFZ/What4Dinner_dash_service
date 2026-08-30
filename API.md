@@ -48,6 +48,7 @@ Every endpoint below links to its full section. All require a Bearer token excep
 | `GET` | [`/v1/recipe`](#get-v1recipe--list-my-familys-recipes) | Every recipe in my family, with favorite / like state |
 | `POST` | [`/v1/recipe`](#post-v1recipe--create-a-recipe) | Create a recipe with steps, ingredients and images |
 | `POST` | [`/v1/recipe/generate`](#post-v1recipegenerate--generate-a-recipe-from-photos) | **AI**: generate a recipe from photos (async) |
+| `POST` | [`/v1/recipe/generate/link`](#post-v1recipegeneratelink--generate-a-recipe-from-a-share-link) | **AI**: generate a recipe from a Xiaohongshu share link (async) |
 | `GET` | [`/v1/recipe/generate/{taskId}`](#get-v1recipegeneratetaskid--poll-a-generation-task) | Poll an AI generation task |
 | `GET` | [`/v1/recipe/{recipeId}`](#get-v1reciperecipeid--recipe-detail) | Full recipe: images, steps, ingredients |
 | `POST` | [`/v1/recipe/{recipeId}/image`](#post-v1reciperecipeidimage--attach-photos-to-a-recipe) | Attach user photos to a recipe |
@@ -305,6 +306,57 @@ The recipe row **already exists** at `status: "pending"` with a placeholder titl
 
 ---
 
+### `POST /v1/recipe/generate/link` — generate a recipe from a share link
+
+_Authenticated._ Takes a **Xiaohongshu** share link, fetches the post's text and photos server-side, and generates a recipe from them. Returns **immediately**; the fetch and the generation both happen in the background.
+
+Unlike [`/generate`](#post-v1recipegenerate--generate-a-recipe-from-photos), the client uploads nothing — there is no `POST /v1/image/upload-url` step. The post's photos are downloaded by the backend, stored under `family/{familyId}/recipe-raw/`, and recorded in `recipe_raw_images` exactly as if they had been uploaded.
+
+**Request**
+
+```
+POST /api/v1/recipe/generate/link
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{ "shareText": "26 【小炒黄牛肉！香辣下饭太绝了🥩🌶️ - 搞一碗好菜778 | 小红书】 😆 JYvTxs7qDduiv59 😆 https://www.xiaohongshu.com/discovery/item/6a62…?xsec_token=ABG61…&xsec_source=pc_share" }
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `shareText` | string | **Required.** Paste the whole share text — the link is extracted from it. A bare URL works too. |
+
+**Send the share text unmodified.** The link must keep its **`xsec_token`** query parameter; without it Xiaohongshu refuses the post and the import fails with `422`. Both the web share URL (`xiaohongshu.com/discovery/item/…`) and the app's `xhslink.com` short link are accepted.
+
+**Response** `202 Accepted` — identical in shape to `/generate`, and polled through the **same** endpoint:
+
+```json
+{
+  "taskId": "3f2a…",
+  "recipeId": "9c81…",
+  "status": "pending",
+  "errorMessage": null
+}
+```
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Missing body or blank `shareText`; no link found in the text; a link that is not `xiaohongshu.com` / `xhslink.com`; a non-`http(s)` scheme |
+| `401 Unauthorized` | No / invalid token |
+| `503 Service Unavailable` | The model or the task store is not configured — nothing is written |
+
+Anything that goes wrong **after** the `202` — expired `xsec_token`, deleted post, unreachable CDN — surfaces on the poll endpoint as `status: "failed"` with `errorMessage`, not as an HTTP error here.
+
+> **What the model gets**: the post's title and body text, plus its photos. The body text is usually the whole recipe, so results are noticeably better than photos alone. Photos are still mapped onto individual steps under the same conservative rules described above.
+>
+> **Third-party text is treated as data, never instructions.** The post body is fenced in `<post_text>` tags and the model is told explicitly that nothing inside can change its rules or output shape.
+>
+> **Only Xiaohongshu is supported.** The link is validated against a host allowlist before any request is made, and again after every redirect hop.
+
+---
+
 ### `GET /v1/recipe/generate/{taskId}` — poll a generation task
 
 _Authenticated._ Returns the task's current state. Poll until `status` is terminal.
@@ -312,7 +364,7 @@ _Authenticated._ Returns the task's current state. Poll until `status` is termin
 | `status` | Meaning |
 |---|---|
 | `pending` | Accepted, not started |
-| `processing` | The model is working |
+| `processing` | The model is working — for a link import this also covers fetching the post |
 | `done` | Finished — fetch `GET /v1/recipe/{recipeId}` for the result |
 | `failed` | Gave up; `errorMessage` says why. The recipe is left at `status: "failed"` with its raw images intact |
 
