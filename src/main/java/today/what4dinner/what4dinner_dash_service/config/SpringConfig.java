@@ -28,4 +28,23 @@ public class SpringConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * Separate pool for dish-photo generation, deliberately not shared with
+     * {@link #aiTaskExecutor()}. An image takes tens of seconds, so sharing would let photo
+     * work starve recipe generation, and once the shared queue filled, {@code CallerRunsPolicy}
+     * would run a minute-long image job on the HTTP request thread — turning the 202 back into
+     * a blocking call, which is the exact bug that was fixed there.
+     */
+    @Bean("aiImageExecutor")
+    public ThreadPoolTaskExecutor aiImageExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(10);
+        executor.setThreadNamePrefix("ai-img-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
 }

@@ -360,7 +360,7 @@ public class AiRecipeServiceImpl implements AiRecipeService {
      * rebuilding it in {@link #persistDraft} safe. If image loading ever becomes tolerant of a
      * failure, the skip must happen here or the numbering desynchronises.
      */
-    private static Map<String, String> photoMenu(List<String> keys) {
+    static Map<String, String> photoMenu(List<String> keys) {
         Map<String, String> byLabel = new LinkedHashMap<>();
         for (int i = 0; i < keys.size(); i++) {
             byLabel.put("p" + (i + 1), keys.get(i).trim());
@@ -533,7 +533,7 @@ public class AiRecipeServiceImpl implements AiRecipeService {
      * Exact key first, then the label: a storage key carries two UUIDs worth of digits and would
      * otherwise be mangled into a photo number by the numeric form below.
      */
-    private String resolvePhoto(String ref, Map<String, String> byLabel, Set<String> ownedKeys) {
+    static String resolvePhoto(String ref, Map<String, String> byLabel, Set<String> ownedKeys) {
         if (ref == null || ref.isBlank()) {
             return null;
         }
@@ -657,7 +657,7 @@ public class AiRecipeServiceImpl implements AiRecipeService {
         return value.length() <= max ? value : value.substring(0, max);
     }
 
-    private Base64ImageSource.MediaType mediaTypeFor(String key) {
+    static Base64ImageSource.MediaType mediaTypeFor(String key) {
         String lower = key.toLowerCase();
         if (lower.endsWith(".png")) {
             return Base64ImageSource.MediaType.IMAGE_PNG;

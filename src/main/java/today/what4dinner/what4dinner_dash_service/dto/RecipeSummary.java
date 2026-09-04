@@ -13,6 +13,10 @@ import java.util.UUID;
  *
  * <p>{@code favorited} and {@code liked} are the calling user's own state;
  * {@code likeCount} is the total across every user.
+ *
+ * <p>{@code coverUrl} is the exception to "field names match column names": nothing selects
+ * it, so it stays null until a service attaches it. On the {@code POST} response it is always
+ * null, since a recipe has no photos at the moment it is created.
  */
 @Data
 @AllArgsConstructor
@@ -35,4 +39,12 @@ public class RecipeSummary {
 
     /** Total likes across all users. */
     private long likeCount;
+
+    /**
+     * Signed GET URL of the cover photo, or null when the recipe has no usable image.
+     *
+     * <p>Not selected by any query — it is filled in afterwards by {@code RecipeCoverResolver},
+     * because a signed URL is computed, not stored. The object key never appears here.
+     */
+    private String coverUrl;
 }

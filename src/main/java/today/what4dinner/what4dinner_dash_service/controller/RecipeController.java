@@ -21,6 +21,7 @@ import today.what4dinner.what4dinner_dash_service.dto.RecipeImageDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetail;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 import today.what4dinner.what4dinner_dash_service.service.AiRecipeService;
+import today.what4dinner.what4dinner_dash_service.service.DishPhotoService;
 import today.what4dinner.what4dinner_dash_service.service.RecipeService;
 
 import java.util.List;
@@ -34,9 +35,13 @@ public class RecipeController {
 
     private final AiRecipeService aiRecipeService;
 
-    public RecipeController(RecipeService recipeService, AiRecipeService aiRecipeService) {
+    private final DishPhotoService dishPhotoService;
+
+    public RecipeController(RecipeService recipeService, AiRecipeService aiRecipeService,
+                            DishPhotoService dishPhotoService) {
         this.recipeService = recipeService;
         this.aiRecipeService = aiRecipeService;
+        this.dishPhotoService = dishPhotoService;
     }
 
     /**
@@ -113,6 +118,21 @@ public class RecipeController {
         }
         UUID userId = UUID.fromString(jwt.getSubject());
         return ResponseEntity.accepted().body(aiRecipeService.submitFromLink(userId, request));
+    }
+
+    /**
+     * Generates a photograph of the finished dish. Takes no body — everything the models need
+     * is already on the recipe and its original photos.
+     *
+     * <p>Polled through the same {@code GET /generate/{taskId}} endpoint as recipe generation.
+     */
+    @PostMapping("/{recipeId}/image/generate")
+    public ResponseEntity<AiTask> generateDishPhoto(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID recipeId) {
+
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.accepted().body(dishPhotoService.submitPhotoGeneration(userId, recipeId));
     }
 
     /** Polls one generation task. {@code 404} once the task is unknown or its TTL has expired. */

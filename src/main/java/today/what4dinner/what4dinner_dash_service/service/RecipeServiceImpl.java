@@ -39,19 +39,25 @@ public class RecipeServiceImpl implements RecipeService {
 
     private final ImageUploadService imageUploadService;
 
+    private final RecipeCoverResolver recipeCoverResolver;
+
     public RecipeServiceImpl(RecipeRepository recipeRepository,
                              UserRepository userRepository,
                              IngredientRepository ingredientRepository,
-                             ImageUploadService imageUploadService) {
+                             ImageUploadService imageUploadService,
+                             RecipeCoverResolver recipeCoverResolver) {
         this.recipeRepository = recipeRepository;
         this.userRepository = userRepository;
         this.ingredientRepository = ingredientRepository;
         this.imageUploadService = imageUploadService;
+        this.recipeCoverResolver = recipeCoverResolver;
     }
 
     @Override
     public List<RecipeSummary> getRecipesForUser(UUID userId) {
-        return recipeRepository.findSummariesByFamilyId(familyOf(userId), userId);
+        List<RecipeSummary> summaries = recipeRepository.findSummariesByFamilyId(familyOf(userId), userId);
+        recipeCoverResolver.attachCovers(summaries);
+        return summaries;
     }
 
     /**

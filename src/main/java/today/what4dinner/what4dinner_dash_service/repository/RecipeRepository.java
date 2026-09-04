@@ -1,6 +1,7 @@
 package today.what4dinner.what4dinner_dash_service.repository;
 
 import today.what4dinner.what4dinner_dash_service.dto.RecipeDetailRow;
+import today.what4dinner.what4dinner_dash_service.dto.RecipeCoverRow;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeImageRow;
 import today.what4dinner.what4dinner_dash_service.dto.RecipeSummary;
 import today.what4dinner.what4dinner_dash_service.dto.StepImageRow;
@@ -12,6 +13,7 @@ import org.springframework.data.jdbc.repository.query.Query;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -246,6 +248,93 @@ public interface RecipeRepository extends CrudRepository<Recipe, UUID> {
                            @Param("isPrimary") boolean isPrimary,
                            @Param("displayOrder") int displayOrder,
                            @Param("uploadedBy") UUID uploadedBy);
+
+    /**
+     * The AI counterpart to {@link #insertRecipeImage}, which hardcodes {@code 'user'} on
+     * purpose. Kept as its own statement rather than parameterising {@code source} there:
+     * that literal is what guarantees the user-photo endpoint can never write an AI row.
+     *
+     * <p>{@code storage_key} stays null until the picture exists — the column is nullable
+     * precisely so a row can be created before its bytes do.
+     */
+    @Modifying
+    @Query("""
+            INSERT INTO recipe_images (id, recipe_id, source, status, is_primary, display_order)
+            VALUES (:id, :recipeId, 'ai', 'pending', false, :displayOrder)
+            """)
+    void insertPendingAiImage(@Param("id") UUID id,
+                              @Param("recipeId") UUID recipeId,
+                              @Param("displayOrder") int displayOrder);
+
+    @Modifying
+    @Query("UPDATE recipe_images SET status = 'processing' WHERE id = :id")
+    void markAiImageProcessing(@Param("id") UUID id);
+
+    @Modifying
+    @Query("""
+            UPDATE recipe_images
+            SET storage_key = :storageKey, status = 'done', prompt = :prompt, model = :model
+            WHERE id = :id
+            """)
+    void completeAiImage(@Param("id") UUID id,
+                         @Param("storageKey") String storageKey,
+                         @Param("prompt") String prompt,
+                         @Param("model") String model);
+
+    @Modifying
+    @Query("UPDATE recipe_images SET status = 'failed', error_message = :errorMessage WHERE id = :id")
+    void failAiImage(@Param("id") UUID id, @Param("errorMessage") String errorMessage);
+
+    /**
+     * Makes this image the cover only if the recipe has none. One statement rather than
+     * check-then-set: two generations finishing together would both read "no cover" and both
+     * insert {@code true}, and {@code uk_recipe_image_primary} would reject the second.
+     */
+    @Modifying
+    @Query("""
+            UPDATE recipe_images SET is_primary = true
+            WHERE id = :id
+              AND NOT EXISTS (
+                  SELECT 1 FROM recipe_images
+                  WHERE recipe_id = :recipeId AND is_primary = true)
+            """)
+    int promoteToPrimaryIfNone(@Param("id") UUID id, @Param("recipeId") UUID recipeId);
+
+    /** The photos the AI pipeline was given. Until now this table was only ever written to. */
+    @Query("""
+            SELECT storage_key
+            FROM recipe_raw_images
+            WHERE recipe_id = :recipeId
+            ORDER BY created_at
+            """)
+    List<String> findRawImageKeysByRecipeId(@Param("recipeId") UUID recipeId);
+
+    /**
+     * The cover image key for each of the given recipes, one row per recipe at most, in one
+     * query — the list endpoints would otherwise be an N+1.
+     *
+     * <p>Two details are load-bearing:
+     *
+     * <ul>
+     * <li>{@code storage_key IS NOT NULL} skips AI rows that exist but have no picture yet.
+     *     Without it a generation in flight would win the ordering and blank out the cover.</li>
+     * <li>{@code NULLS LAST} is required, not decorative: Postgres sorts nulls FIRST under
+     *     {@code DESC}, and {@code is_primary} is a nullable column, so a null there would
+     *     outrank the actual cover.</li>
+     * </ul>
+     *
+     * <p>Falling through to {@code display_order} is what gives a recipe with photos but no
+     * chosen cover its first photo instead of nothing.
+     */
+    @Query("""
+            SELECT DISTINCT ON (ri.recipe_id) ri.recipe_id, ri.storage_key
+            FROM recipe_images ri
+            WHERE ri.recipe_id IN (:recipeIds)
+              AND ri.storage_key IS NOT NULL
+            ORDER BY ri.recipe_id, ri.is_primary DESC NULLS LAST,
+                     ri.display_order, ri.created_at
+            """)
+    List<RecipeCoverRow> findCoverKeysByRecipeIds(@Param("recipeIds") Collection<UUID> recipeIds);
 
     @Query("""
             SELECT id, storage_key, is_primary, display_order

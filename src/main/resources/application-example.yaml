@@ -39,3 +39,13 @@ share-import:
   timeout-seconds: ${SHARE_IMPORT_TIMEOUT_SECONDS:15}
   max-images: ${SHARE_IMPORT_MAX_IMAGES:10}
   max-image-bytes: ${SHARE_IMPORT_MAX_IMAGE_BYTES:8388608}
+
+image-gen:
+  provider: ${IMAGE_GEN_PROVIDER:openai}
+  timeout-seconds: ${IMAGE_GEN_TIMEOUT_SECONDS:120}
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    model: ${OPENAI_IMAGE_MODEL:gpt-image-1}
+    size: ${OPENAI_IMAGE_SIZE:1024x1024}
+    quality: ${OPENAI_IMAGE_QUALITY:medium}
+    output-format: ${OPENAI_IMAGE_OUTPUT_FORMAT:png}

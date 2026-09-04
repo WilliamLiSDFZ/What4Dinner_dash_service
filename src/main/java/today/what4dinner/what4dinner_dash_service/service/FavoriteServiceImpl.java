@@ -18,14 +18,23 @@ public class FavoriteServiceImpl implements FavoriteService {
 
     private final RecipeRepository recipeRepository;
 
-    public FavoriteServiceImpl(FavoriteRepository favoriteRepository, RecipeRepository recipeRepository) {
+    private final RecipeCoverResolver recipeCoverResolver;
+
+    public FavoriteServiceImpl(FavoriteRepository favoriteRepository,
+                               RecipeRepository recipeRepository,
+                               RecipeCoverResolver recipeCoverResolver) {
         this.favoriteRepository = favoriteRepository;
         this.recipeRepository = recipeRepository;
+        this.recipeCoverResolver = recipeCoverResolver;
     }
 
     @Override
     public List<RecipeSummary> getFavoritesForUser(UUID userId) {
-        return favoriteRepository.findFavoriteSummariesByUserId(userId);
+        // Covers here too: the favorites query is documented as returning the same populated
+        // shape as GET /v1/recipe, and a permanently null coverUrl would break that.
+        List<RecipeSummary> summaries = favoriteRepository.findFavoriteSummariesByUserId(userId);
+        recipeCoverResolver.attachCovers(summaries);
+        return summaries;
     }
 
     /**

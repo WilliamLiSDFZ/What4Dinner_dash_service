@@ -27,4 +27,10 @@ public class AiTask {
 
     /** Populated only when {@code status} is {@code failed}. */
     private String errorMessage;
+
+    /**
+     * The {@code recipe_images} row this task is filling in, for dish-photo generation.
+     * Null for recipe-text generation, which produces no image row.
+     */
+    private UUID imageId;
 }

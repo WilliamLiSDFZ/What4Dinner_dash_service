@@ -13,6 +13,9 @@ public interface AiTaskStore {
 
     AiTask create(UUID taskId, UUID recipeId);
 
+    /** As {@link #create}, but for a task that is filling in a {@code recipe_images} row. */
+    AiTask createForImage(UUID taskId, UUID recipeId, UUID imageId);
+
     void markProcessing(UUID taskId);
 
     void markDone(UUID taskId);

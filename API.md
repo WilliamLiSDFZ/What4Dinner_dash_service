@@ -52,6 +52,7 @@ Every endpoint below links to its full section. All require a Bearer token excep
 | `GET` | [`/v1/recipe/generate/{taskId}`](#get-v1recipegeneratetaskid--poll-a-generation-task) | Poll an AI generation task |
 | `GET` | [`/v1/recipe/{recipeId}`](#get-v1reciperecipeid--recipe-detail) | Full recipe: images, steps, ingredients |
 | `POST` | [`/v1/recipe/{recipeId}/image`](#post-v1reciperecipeidimage--attach-photos-to-a-recipe) | Attach user photos to a recipe |
+| `POST` | [`/v1/recipe/{recipeId}/image/generate`](#post-v1reciperecipeidimagegenerate--generate-a-dish-photo) | **AI**: generate a photo of the finished dish (async) |
 | `DELETE` | [`/v1/recipe/{recipeId}`](#delete-v1reciperecipeid--delete-a-recipe) | Delete a recipe and everything under it |
 
 ### Favorite
@@ -130,7 +131,8 @@ Authorization: Bearer <jwt>
     "status": "done",
     "favorited": true,
     "liked": false,
-    "likeCount": 12
+    "likeCount": 12,
+    "coverUrl": "https://storage.googleapis.com/…&X-Goog-Signature=…"
   }
 ]
 ```
@@ -144,8 +146,13 @@ Authorization: Bearer <jwt>
 | `favorited` | boolean | Whether **you** have favorited it |
 | `liked` | boolean | Whether **you** have liked it |
 | `likeCount` | int | Total likes across **all** users |
+| `coverUrl` | string \| null | **Signed GET URL** of the cover photo, not an object key. `null` when the recipe has no usable photo |
 
 `favorited` and `liked` are **your own** state; `likeCount` is the global total. A row can therefore read `liked: false` with a non-zero `likeCount` — the same semantics as `GET /v1/like/{recipeId}`, which stays available for refreshing a single recipe.
+
+**`coverUrl` saves a round trip per recipe** — the list can be rendered with pictures without fetching each recipe's detail. It is the image marked as the cover; if none is marked, it falls back to the recipe's first photo by `displayOrder`. A photo still being generated does not count, so a recipe mid-generation keeps `coverUrl: null` rather than showing a broken image.
+
+Like every image URL in this API it is **short-lived** (`gcs.signed-url-minutes`, default 15) — re-fetch the list rather than caching the URLs. If storage is unconfigured the field is `null` for every recipe and the list still returns `200`.
 
 Returns an empty array `[]` if the family has no recipes.
 
@@ -242,7 +249,7 @@ Because `imageKeys` is the one place a client supplies a storage key rather than
 }
 ```
 
-Same shape as the `GET /v1/recipe` items — a freshly created recipe is naturally unfavorited, unliked, and at zero likes. There is no recipe-detail endpoint yet, so the nested structure is not echoed back — use the returned `id`.
+Same shape as the `GET /v1/recipe` items — a freshly created recipe is naturally unfavorited, unliked, at zero likes, and with `coverUrl: null`, since photos are attached in a separate call. The nested structure is not echoed back; use the returned `id` with [`GET /v1/recipe/{recipeId}`](#get-v1reciperecipeid--recipe-detail).
 
 **Errors**
 
@@ -357,6 +364,58 @@ Anything that goes wrong **after** the `202` — expired `xsec_token`, deleted p
 
 ---
 
+### `POST /v1/recipe/{recipeId}/image/generate` — generate a dish photo
+
+_Authenticated._ Generates a photograph of the finished dish and attaches it to the recipe. Returns **immediately**; the work runs in the background. **Family-scoped.**
+
+**No request body.** Everything the models need is already on the recipe and its original photos.
+
+Two models are involved, because no single one does both halves:
+
+1. A vision model looks at the recipe's original photos (`recipe_raw_images`) and picks the one that best shows the **finished, plated dish** — or **none**, which is a normal outcome when the recipe only has ingredient and step photos. It then writes a detailed description of how the dish looks and identifies the cuisine.
+2. An image model paints that description. The **photo itself is never passed to it** — the written description is. This keeps the composition under our control instead of inheriting the framing of a casual snapshot.
+
+**Request**
+
+```
+POST /api/v1/recipe/e952e2e4-…/image/generate
+Authorization: Bearer <jwt>
+```
+
+**Response** `202 Accepted` — polled through the **same** endpoint as recipe generation, [`GET /v1/recipe/generate/{taskId}`](#get-v1recipegeneratetaskid--poll-a-generation-task):
+
+```json
+{
+  "taskId": "3f2a…",
+  "recipeId": "9c81…",
+  "status": "pending",
+  "errorMessage": null,
+  "imageId": "7b40…"
+}
+```
+
+`imageId` is the `recipe_images` row being filled in. It is `null` for recipe-text generation tasks.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `401 Unauthorized` | No / invalid token |
+| `404 Not Found` | No such recipe **in the caller's family** |
+| `503 Service Unavailable` | The vision model, the image model, or the task store is not configured — nothing is written |
+
+> **The composition is fixed**, not chosen by the model: the plate sits in the centre of the frame, the camera looks down at it from roughly 45°, and the background is the softly-blurred dining room of a restaurant matching the cuisine — a Chinese dish gets a Chinese restaurant, a Western dish a Western one.
+>
+> **Cover behaviour**: the generated photo becomes the cover **only if the recipe does not already have one**. A cover you chose yourself is never replaced.
+>
+> **Repeat generation is allowed.** Each call adds another image; they accumulate in `displayOrder` order. Note that each one costs a real image-model call — there is no per-family quota.
+>
+> **While it is running**, the row exists at `status: "pending"` with no storage key, and is **not** returned by `GET /v1/recipe/{recipeId}` — clients see the new photo appear only once it is finished, and never see a broken image. Poll the task to know when. On failure the row lands at `status: "failed"` with the provider's reason recorded.
+>
+> Rows are written with `source = 'ai'`, alongside the `prompt` and `model` used, so it is always possible to tell what produced a picture and to reproduce it.
+
+---
+
 ### `GET /v1/recipe/generate/{taskId}` — poll a generation task
 
 _Authenticated._ Returns the task's current state. Poll until `status` is terminal.
@@ -369,8 +428,10 @@ _Authenticated._ Returns the task's current state. Poll until `status` is termin
 | `failed` | Gave up; `errorMessage` says why. The recipe is left at `status: "failed"` with its raw images intact |
 
 ```json
-{ "taskId": "3f2a…", "recipeId": "9c81…", "status": "done", "errorMessage": null }
+{ "taskId": "3f2a…", "recipeId": "9c81…", "status": "done", "errorMessage": null, "imageId": null }
 ```
+
+`imageId` is set only for dish-photo tasks; it is `null` for recipe generation.
 
 **Errors**
 
@@ -380,7 +441,7 @@ _Authenticated._ Returns the task's current state. Poll until `status` is termin
 | `401 Unauthorized` | No / invalid token |
 | `503 Service Unavailable` | Task storage unreachable — distinct from `404`, which means the task genuinely is not there |
 
-> **What the model produces**: title, description, prep/cook times, ordered steps, and each step's ingredients. It reuses your family's existing ingredients where they match and creates any it sees that you do not have yet. It does not generate tags or cover images.
+> **What the model produces**: title, description, prep/cook times, ordered steps, and each step's ingredients. It reuses your family's existing ingredients where they match and creates any it sees that you do not have yet. It does not generate tags. A cover photo is a **separate, opt-in step** — see [`POST /v1/recipe/{recipeId}/image/generate`](#post-v1reciperecipeidimagegenerate--generate-a-dish-photo).
 >
 > **It also maps your uploaded photos onto the steps.** Each submitted photo is shown to the model under a positional label (`p1`, `p2`, …) — never its object key — and a photo the model attaches to a step is written to `step_images`, so it comes back in `steps[].images` on the detail endpoint just like a hand-written recipe's.
 >
@@ -542,7 +603,7 @@ curl -X POST \
 
 _Authenticated._ Deletes a recipe belonging to the caller's family.
 
-**Family-scoped, not uploader-scoped:** any member may delete any of the family's recipes, including one a relative uploaded. Note the asymmetry with `GET /v1/recipe`, which lists only recipes *you* uploaded — so a member can delete a recipe that does not appear in their own list.
+**Family-scoped, not uploader-scoped:** any member may delete any of the family's recipes, including one a relative uploaded — the same scope `GET /v1/recipe` lists.
 
 Everything belonging to the recipe goes with it via `ON DELETE CASCADE`: steps, step ingredients, step images, recipe ingredients, tags, favorites, likes, images, raw images, and shopping-list entries.
 
@@ -591,7 +652,8 @@ Authorization: Bearer <jwt>
     "status": "done",
     "favorited": true,
     "liked": false,
-    "likeCount": 12
+    "likeCount": 12,
+    "coverUrl": "https://storage.googleapis.com/…&X-Goog-Signature=…"
   }
 ]
 ```
@@ -605,8 +667,9 @@ Authorization: Bearer <jwt>
 | `favorited` | boolean | Whether **you** have favorited it |
 | `liked` | boolean | Whether **you** have liked it |
 | `likeCount` | int | Total likes across **all** users |
+| `coverUrl` | string \| null | **Signed GET URL** of the cover photo, not an object key. `null` when the recipe has no usable photo |
 
-`favorited` is always `true` here by definition. Returns an empty array `[]` if the user has no favorites. A favorited recipe owned by another user is still returned — favorites are not scoped to the recipe's owner.
+`favorited` is always `true` here by definition, and `coverUrl` is populated exactly as it is on `GET /v1/recipe`. Returns an empty array `[]` if the user has no favorites. A favorited recipe owned by another user is still returned — favorites are not scoped to the recipe's owner.
 
 **Errors**
 

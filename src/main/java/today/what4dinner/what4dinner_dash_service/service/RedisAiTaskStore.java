@@ -38,7 +38,14 @@ public class RedisAiTaskStore implements AiTaskStore {
 
     @Override
     public AiTask create(UUID taskId, UUID recipeId) {
-        AiTask task = new AiTask(taskId, recipeId, "pending", null);
+        AiTask task = new AiTask(taskId, recipeId, "pending", null, null);
+        write(task);
+        return task;
+    }
+
+    @Override
+    public AiTask createForImage(UUID taskId, UUID recipeId, UUID imageId) {
+        AiTask task = new AiTask(taskId, recipeId, "pending", null, imageId);
         write(task);
         return task;
     }
