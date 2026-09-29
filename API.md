@@ -102,6 +102,15 @@ Every endpoint below links to its full section. All require a Bearer token excep
 | `GET` | [`/v1/setting`](#get-v1setting--read-settings) | Read settings, grouped by scope |
 | `PATCH` | [`/v1/setting`](#patch-v1setting--update-settings) | Update settings (partial) |
 
+### Shopping list
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | [`/v1/shopping-list`](#get-v1shopping-list--read-the-shopping-list) | Selected recipes + de-duplicated ingredients with checked state |
+| `PUT` | [`/v1/shopping-list/recipes/{recipeId}`](#put-v1shopping-listrecipesrecipeid--add-a-recipe) | Add a recipe to the list |
+| `DELETE` | [`/v1/shopping-list/recipes/{recipeId}`](#delete-v1shopping-listrecipesrecipeid--remove-a-recipe) | Remove a recipe from the list |
+| `PATCH` | [`/v1/shopping-list/ingredients/{ingredientId}`](#patch-v1shopping-listingredientsingredientid--check-or-uncheck-an-ingredient) | Mark an ingredient bought / not bought |
+
 ### Health
 
 | Method | Endpoint | Description |
@@ -1138,6 +1147,188 @@ curl -X PATCH \
   http://localhost:8082/api/v1/setting
 ```
 
+### `GET /v1/shopping-list` — read the shopping list
+
+_Authenticated._ Returns the shopping list of the authenticated user's family (family resolved from the JWT `sub` claim). The list is shared by the whole family.
+
+A recipe on the list contributes one row per ingredient. Each recipe appears once with its own full ingredient list. The top-level `ingredients` array lists each ingredient **once**, however many selected recipes use it, and carries the checked state. Quantities are not included. Both arrays are in the order items were added.
+
+**Request**
+
+```
+GET /api/v1/shopping-list
+Authorization: Bearer <jwt>
+```
+
+**Response** `200 OK`
+
+```json
+{
+  "recipes": [
+    {
+      "id": "b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f",
+      "title": "西红柿炒鸡蛋",
+      "description": "家常快手菜",
+      "status": "done",
+      "coverUrl": "https://storage.googleapis.com/…&X-Goog-Signature=…",
+      "ingredients": [
+        { "ingredientId": "0822ac43-…", "name": "鸡蛋" },
+        { "ingredientId": "dedaabbb-…", "name": "西红柿" }
+      ]
+    }
+  ],
+  "ingredients": [
+    { "ingredientId": "0822ac43-…", "name": "鸡蛋", "checked": true },
+    { "ingredientId": "dedaabbb-…", "name": "西红柿", "checked": false }
+  ]
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `recipes[].id` | UUID | Recipe id |
+| `recipes[].title` | string | Recipe name |
+| `recipes[].description` | string \| null | Short description / notes |
+| `recipes[].status` | string | `pending` or `done` |
+| `recipes[].coverUrl` | string \| null | **Signed GET URL** of the cover photo, not an object key. `null` when the recipe has no usable photo |
+| `recipes[].ingredients` | array | This recipe's ingredients as `{ingredientId, name}`. No checked state; an ingredient shared by two recipes appears under both |
+| `ingredients[].ingredientId` | UUID | Ingredient id |
+| `ingredients[].name` | string | Ingredient canonical name |
+| `ingredients[].checked` | boolean | `true` only when the ingredient is checked for **every** recipe on the list that uses it. Adding another recipe that uses an already-checked ingredient therefore shows it unchecked again |
+
+Both arrays are empty when nothing is on the list.
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+
+**Example**
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/api/v1/shopping-list
+```
+
+### `PUT /v1/shopping-list/recipes/{recipeId}` — add a recipe
+
+_Authenticated._ Adds a recipe of the caller's family, together with all its ingredients (unchecked), to the family's shopping list. **Idempotent**: adding a recipe already on the list changes nothing and keeps existing checked state.
+
+**Request**
+
+```
+PUT /api/v1/shopping-list/recipes/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+Authorization: Bearer <jwt>
+```
+
+| Parameter | In | Type | Notes |
+|-----------|----|------|-------|
+| `recipeId` | path | UUID | Recipe to add |
+
+**Response** `204 No Content`
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | The recipe has no ingredients, or `recipeId` is not a UUID |
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+| `404 Not Found` | No such recipe in your family |
+
+**Example**
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8082/api/v1/shopping-list/recipes/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+```
+
+### `DELETE /v1/shopping-list/recipes/{recipeId}` — remove a recipe
+
+_Authenticated._ Removes a recipe and its ingredient rows from the family's shopping list. Ingredients still used by another recipe on the list stay, with that recipe's checked state.
+
+**Request**
+
+```
+DELETE /api/v1/shopping-list/recipes/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+Authorization: Bearer <jwt>
+```
+
+| Parameter | In | Type | Notes |
+|-----------|----|------|-------|
+| `recipeId` | path | UUID | Recipe to remove |
+
+**Response** `204 No Content`
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | `recipeId` is not a UUID |
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+| `404 Not Found` | The recipe is not on your family's list |
+
+**Example**
+
+```bash
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8082/api/v1/shopping-list/recipes/b6a1f2c0-0d3e-4f1a-9c2b-1a2b3c4d5e6f
+```
+
+### `PATCH /v1/shopping-list/ingredients/{ingredientId}` — check or uncheck an ingredient
+
+_Authenticated._ Marks an ingredient on the family's shopping list as bought or not bought. Applies to the ingredient for **every** recipe on the list that uses it.
+
+Sets an explicit desired state rather than toggling, so the call is **idempotent**.
+
+**Request**
+
+```
+PATCH /api/v1/shopping-list/ingredients/0822ac43-…
+Authorization: Bearer <jwt>
+Content-Type: application/json
+
+{
+  "checked": true
+}
+```
+
+| Parameter | In | Type | Notes |
+|-----------|----|------|-------|
+| `ingredientId` | path | UUID | Ingredient to check / uncheck |
+| `checked` | body | boolean | **Required.** `true` = bought, `false` = not bought |
+
+**Response** `200 OK`
+
+```json
+{
+  "ingredientId": "0822ac43-…",
+  "checked": true
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `ingredientId` | UUID | The ingredient that was updated |
+| `checked` | boolean | Resulting state |
+
+**Errors**
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Body missing, `checked` absent or null, or `ingredientId` is not a UUID |
+| `401 Unauthorized` | No / invalid token, or the user row no longer exists |
+| `404 Not Found` | The ingredient is not on your family's list |
+
+**Example**
+
+```bash
+curl -X PATCH \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"checked":true}' \
+  http://localhost:8082/api/v1/shopping-list/ingredients/0822ac43-…
+```
+
 ### `GET /v1/health` — liveness probe
 
 _**Public** — the only endpoint that needs no token._ Used by the Docker healthcheck.
@@ -1151,14 +1342,6 @@ _**Public** — the only endpoint that needs no token._ Used by the Docker healt
 ```bash
 curl http://localhost:8082/api/v1/health
 ```
-
-## Planned endpoints
-
-The following controllers exist as stubs and have no endpoints implemented yet:
-
-| Base path | Area |
-|-----------|------|
-| `/v1/shopping-list` | Shopping lists |
 
 ## Conventions
 

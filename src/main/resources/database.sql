@@ -180,11 +180,16 @@ CREATE INDEX IF NOT EXISTS idx_likes_recipe ON recipe_likes (recipe_id);
 
 create table if not exists family_shopping_list
 (
-    family_id  uuid not null references family (id) on delete cascade,
-    recipe_id  UUID NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
-    created_at timestamp DEFAULT current_timestamp,
-    PRIMARY KEY (family_id, recipe_id)
+    id            uuid primary key default gen_random_uuid() not null,
+    family_id     uuid                                       not null references family (id) on delete cascade,
+    recipe_id     UUID                                       NOT NULL REFERENCES recipes (id) ON DELETE CASCADE,
+    ingredient_id UUID                                       not null REFERENCES ingredients (id),
+    checked       bool                                       not null default false,
+    created_at    timestamp        DEFAULT current_timestamp,
+    unique (family_id, recipe_id, ingredient_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_shopping_family ON family_shopping_list (family_id);
 
 CREATE TABLE IF NOT EXISTS embeddings
 (
